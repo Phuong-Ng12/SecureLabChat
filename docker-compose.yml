@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  chat-server:
+    build: .
+    container_name: secure-lab-chat
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/usr/src/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000

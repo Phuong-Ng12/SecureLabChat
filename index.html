@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Lab Chat</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; display: flex; flex-direction: column; height: 90vh; }
+        #chat-box { flex: 1; border: 1px solid #ccc; padding: 10px; overflow-y: scroll; margin-bottom: 10px; background: #f9f9f9; }
+        .msg { margin-bottom: 8px; }
+        .user { font-weight: bold; color: #2b6cb0; }
+        .time { font-size: 0.8em; color: #aaa; margin-left: 5px; }
+        #input-area { display: flex; gap: 10px; }
+        input { padding: 10px; font-size: 110%; }
+        #username { width: 20%; }
+        #message { width: 70%; }
+        button { width: 10%; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>Local Lab Secure Communication Channel Start Here</h2>
+    <div id="chat-box"></div>
+    
+    <div id="input-area">
+        <input type="text" id="username" placeholder="Your Name" value="Anonymous">
+        <input type="text" id="message" placeholder="Type a message..." autocomplete="off">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <!-- Load Socket.io library from your local server node_modules dependency -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io(); // Automatically connects to the host server
+        const chatBox = document.getElementById('chat-box');
+
+        // Receive message from server
+        socket.on('chat_message', (data) => {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'msg';
+            msgDiv.innerHTML = `<span class="user">${data.user}</span><span class="time">${data.time}</span><br>${data.text}`;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight; // Auto scroll down
+        });
+
+        function sendMessage() {
+            const user = document.getElementById('username').value;
+            const messageInput = document.getElementById('message');
+            const text = messageInput.value.trim();
+
+            if (text !== "") {
+                socket.emit('chat_message', { user, text });
+                messageInput.value = "";
+            }
+        }
+
+        // Allow pressing Enter key to send
+        document.getElementById('message').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>

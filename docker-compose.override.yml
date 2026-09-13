@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  chat-server:
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000

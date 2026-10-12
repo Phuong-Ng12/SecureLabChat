@@ -85,6 +85,32 @@ io.on('connection', (socket) => {
 
     });
 
+    // manage room navigation and history
+    socket.on('join_room', (room) => {
+        socket.join(room);
+        console.log(`User ${session.name} switched to channel: ${room}`);
+
+        // fetch old chat data from SQLite table sorted sequentially
+        db.all(
+            `SELECT user, role, encrypted_text, timestamp FROM messages WHERE room = ? ORDER BY id ASC`,
+            [room],
+            (err, rows) => {
+                if (err) {
+                    console.error('Error compiling room logs history:', err.message);
+                    return;
+                }
+                if (rows) {
+                    // send chat message arrays exclusively back to the requesting client
+                    socket.emit('load_history', rows);
+                }
+            }
+        );
+    });
+
+    socket.on('leave_room', (room) => {
+        socket.leave(room);
+    });
+
 
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);

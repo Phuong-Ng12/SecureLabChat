@@ -1,4 +1,8 @@
-const { createApp, ref, nextTick } = Vue;
+const {
+    createApp,
+    ref,
+    nextTick
+} = Vue;
 
 createApp({
     setup() {
@@ -8,11 +12,17 @@ createApp({
         const chatHistory = ref([]);
         const isMobileMenuOpen = ref(false);
         const inputText = ref('');
-        
-        const currentUser = ref({ name: '', role: '' });
-        
-        const loginForm = ref({ username: '', password: '' });
-        
+
+        const currentUser = ref({
+            name: '',
+            role: ''
+        });
+
+        const loginForm = ref({
+            username: '',
+            password: ''
+        });
+
         const channelMatrix = ref(['#general', '#announcements']);
 
         // Establish the local area network socket link
@@ -24,7 +34,7 @@ createApp({
                 currentUser.value.role = response.role;
                 isAuthenticated.value = true;
                 authError.value = '';
-                
+
                 // Auto-fetch landing page history logs
                 socket.emit('join_room', currentRoom.value);
             } else {
@@ -63,7 +73,7 @@ createApp({
             socket.emit('leave_room', currentRoom.value);
             currentRoom.value = targetRoom;
             chatHistory.value = []; // Clear array view instantly
-            
+
             socket.emit('join_room', targetRoom);
             isMobileMenuOpen.value = false; // Shut mobile view drawer links
         }
@@ -102,10 +112,40 @@ createApp({
             });
         }
 
+        function logout() {
+            socket.emit('logout');
+
+            isAuthenticated.value = false;
+            currentUser.value = {
+                name: '',
+                role: ''
+            };
+            loginForm.value = {
+                username: '',
+                password: ''
+            };
+            authError.value = '';
+            chatHistory.value = [];
+            currentRoom.value = '#general';
+            inputText.value = '';
+            isMobileMenuOpen.value = false;
+        }
+
         return {
-            isAuthenticated, authError, currentRoom, chatHistory, isMobileMenuOpen, inputText,
-            currentUser, loginForm, channelMatrix,
-            submitAuthentication, switchChannel, pushChatMessage, canUserPostInCurrentRoom
+            isAuthenticated,
+            authError,
+            currentRoom,
+            chatHistory,
+            isMobileMenuOpen,
+            inputText,
+            currentUser,
+            loginForm,
+            channelMatrix,
+            submitAuthentication,
+            switchChannel,
+            pushChatMessage,
+            canUserPostInCurrentRoom,
+            logout
         };
     }
 }).mount('#app');

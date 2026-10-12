@@ -1,7 +1,10 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const {
+    Server
+} = require('socket.io');
 const path = require('path');
+const crypto = require('crypto');
 const db = require('./database');
 
 const app = express();
@@ -19,17 +22,69 @@ app.get('/admin', (req, res) => {
 
 // Socket.io connection logic
 io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.id}`);
+    console.log(`New connection handshake on socket: ${socket.id}`);
+
+    let session = {
+        name: 'Anonymous',
+        role: 'Staff'
+    };
 
     // Listen for incoming messages from a client
-    socket.on('chat_message', (data) => {
-        // Broadcast the message to EVERY connected user in the lab
-        io.emit('chat_message', {
-            user: data.user,
-            text: data.text,
-            time: new Date().toLocaleTimeString()
-        });
+    // socket.on('chat_message', (data) => {
+    //     // Broadcast the message to EVERY connected user in the lab
+    //     io.emit('chat_message', {
+    //         user: data.user,
+    //         text: data.text,
+    //         time: new Date().toLocaleTimeString()
+    //     });
+    // });
+
+    socket.on('authenticate', (credentials) => {
+        try {
+            const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
+
+            db.get(`SELECT username, role FROM users WHERE username = ? AND password_hash = ?`,
+                [credentials.username, hash],
+                (err, userRow) => {
+                    if (err) {
+                        console.error('SQL Auth Error:', err.message);
+                        socket.emit('authenticated', {
+                            success: false,
+                            error: 'Database verification failure.'
+                        });
+                        return;
+                    }
+
+                    if (userRow) {
+                        session.name = userRow.username;
+                        session.role = userRow.role;
+
+                        // Respond back to browser UI
+                        socket.emit('authenticated', {
+                            success: true,
+                            name: userRow.username,
+                            role: userRow.role
+                        });
+                        console.log(`[AUTH DETECTED] ${session.name} authenticated into room with role context: ${session.role}`);
+
+                        // Auto-join base landing channel on successful login
+                        socket.join('#general');
+                    } else {
+                        socket.emit('authenticated', {
+                            success: false,
+                            error: 'Access Denied: Invalid credentials.'
+                        });
+                    }
+                }
+            );
+
+        } catch (error) {
+            console.error('Authentication error: ', error.message);
+            socket.emit('authenticated', { success: false, error: 'Internal server error processing payload.' });
+        }
+
     });
+
 
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);

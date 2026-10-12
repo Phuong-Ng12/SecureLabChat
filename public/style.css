@@ -321,6 +321,24 @@ input:focus {
     letter-spacing: 0.2px;
 }
 
+.btn-logout {
+    margin-top: 20px;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid #e53e3e;
+    color: #fc8181;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.95em;
+    transition: all 0.2s;
+}
+
+.btn-logout:hover {
+    background: #e53e3e;
+    color: white;
+}
+
 /* Tablet & Mobile Scale Adaptations Override */
 @media (max-width: 768px) {
     .menu-toggle {

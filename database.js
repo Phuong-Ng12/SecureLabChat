@@ -1,5 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
+const fs = require('fs');
+fs.mkdirSync('./data', { recursive: true });
 
 const DB_PATH = './data/chat.db';
 

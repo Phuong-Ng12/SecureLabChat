@@ -11,7 +11,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve the static frontend file
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
@@ -20,89 +21,84 @@ app.get('/admin', (req, res) => {
     res.send('<h1>Admin dashboard placeholder</h1>');
 });
 
-// Socket.io connection logic
-io.on('connection', (socket) => {
-    console.log(`New connection handshake on socket: ${socket.id}`);
+const ROOMS = ['#general', '#announcements'];
 
-    let session = {
-        name: 'Anonymous',
-        role: 'Staff'
+// Server-side posting rules (the browser check is only cosmetic)
+function canPost(role, room) {
+    if (room === '#announcements') return role === 'Manager' || role === 'Admin';
+    if (room === '#general') return ['Manager', 'Admin', 'Supervisor'].includes(role);
+    return false;
+}
+
+io.on('connection', (socket) => {
+    console.log(`New connection: ${socket.id}`);
+
+    const session = {
+        authenticated: false,
+        name: null,
+        role: null
     };
 
-    // Listen for incoming messages from a client
-    // socket.on('chat_message', (data) => {
-    //     // Broadcast the message to EVERY connected user in the lab
-    //     io.emit('chat_message', {
-    //         user: data.user,
-    //         text: data.text,
-    //         time: new Date().toLocaleTimeString()
-    //     });
-    // });
-
     socket.on('authenticate', (credentials) => {
-        try {
-            const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
-
-            db.get(`SELECT username, role FROM users WHERE username = ? AND password_hash = ?`,
-                [credentials.username, hash],
-                (err, userRow) => {
-                    if (err) {
-                        console.error('SQL Auth Error:', err.message);
-                        socket.emit('authenticated', {
-                            success: false,
-                            error: 'Database verification failure.'
-                        });
-                        return;
-                    }
-
-                    if (userRow) {
-                        session.name = userRow.username;
-                        session.role = userRow.role;
-
-                        // Respond back to browser UI
-                        socket.emit('authenticated', {
-                            success: true,
-                            name: userRow.username,
-                            role: userRow.role
-                        });
-                        console.log(`[AUTH DETECTED] ${session.name} authenticated into room with role context: ${session.role}`);
-
-                        // Auto-join base landing channel on successful login
-                        socket.join('#general');
-                    } else {
-                        socket.emit('authenticated', {
-                            success: false,
-                            error: 'Access Denied: Invalid credentials.'
-                        });
-                    }
-                }
-            );
-
-        } catch (error) {
-            console.error('Authentication error: ', error.message);
-            socket.emit('authenticated', { success: false, error: 'Internal server error processing payload.' });
+        if (!credentials || typeof credentials.username !== 'string' || typeof credentials.password !== 'string') {
+            socket.emit('authenticated', {
+                success: false,
+                error: 'Invalid login payload.'
+            });
+            return;
         }
 
+        const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
+
+        db.get(
+            `SELECT username, role FROM users WHERE username = ? AND password_hash = ?`,
+            [credentials.username.trim(), hash],
+            (err, userRow) => {
+                if (err) {
+                    console.error('SQL Auth Error:', err.message);
+                    socket.emit('authenticated', {
+                        success: false,
+                        error: 'Database verification failure.'
+                    });
+                    return;
+                }
+                if (!userRow) {
+                    socket.emit('authenticated', {
+                        success: false,
+                        error: 'Access Denied: Invalid credentials.'
+                    });
+                    return;
+                }
+
+                session.authenticated = true;
+                session.name = userRow.username;
+                session.role = userRow.role;
+
+                console.log(`[AUTH] ${session.name} logged in as ${session.role}`);
+                socket.emit('authenticated', {
+                    success: true,
+                    name: session.name,
+                    role: session.role
+                });
+            }
+        );
     });
 
-    // manage room navigation and history
     socket.on('join_room', (room) => {
-        socket.join(room);
-        console.log(`User ${session.name} switched to channel: ${room}`);
+        if (!session.authenticated || !ROOMS.includes(room)) return;
 
-        // fetch old chat data from SQLite table sorted sequentially
+        socket.join(room);
+        console.log(`${session.name} joined ${room}`);
+
         db.all(
-            `SELECT user, role, encrypted_text, timestamp FROM messages WHERE room = ? ORDER BY id ASC`,
+            `SELECT id, user, role, encrypted_text, timestamp FROM messages WHERE room = ? ORDER BY id ASC`,
             [room],
             (err, rows) => {
                 if (err) {
-                    console.error('Error compiling room logs history:', err.message);
+                    console.error('History error:', err.message);
                     return;
                 }
-                if (rows) {
-                    // send chat message arrays exclusively back to the requesting client
-                    socket.emit('load_history', rows);
-                }
+                socket.emit('load_history', rows || []);
             }
         );
     });
@@ -111,14 +107,49 @@ io.on('connection', (socket) => {
         socket.leave(room);
     });
 
+    socket.on('chat_message', (data) => {
+        if (!session.authenticated || !data) return;
+
+        const {
+            room
+        } = data;
+        const text = typeof data.text === 'string' ? data.text.trim().slice(0, 1000) : '';
+
+        if (!ROOMS.includes(room) || !text) return;
+
+        if (!canPost(session.role, room)) {
+            socket.emit('security_alert', 'You do not have permission to post in this channel.');
+            return;
+        }
+
+        const timestamp = new Date().toLocaleTimeString();
+
+        db.run(
+            `INSERT INTO messages (room, user, role, encrypted_text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+            [room, session.name, session.role, text, timestamp],
+            function (err) {
+                if (err) {
+                    console.error('Insert error:', err.message);
+                    return;
+                }
+                io.to(room).emit('chat_message', {
+                    id: this.lastID,
+                    room,
+                    user: session.name,
+                    role: session.role,
+                    encrypted_text: text,
+                    timestamp
+                });
+            }
+        );
+    });
 
     socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
+        console.log(`Disconnected: ${socket.id}`);
     });
 });
 
-const PORT = 3000;
-// CRITICAL: Bind to 0.0.0.0 so it listens to external LAN devices, not just localhost
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running! Tell your lab peers to visit: http://<YOUR_LAPTOP_IP>:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });

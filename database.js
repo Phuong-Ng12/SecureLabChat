@@ -51,6 +51,19 @@ function initializeAndSeedDatabase() {
         });
 
         console.log('Database schemas initilized and default accounts seeded.');
+
+        // seed some mock history data to test socket.on('join_room')
+        db.get(`SELECT COUNT(*) as count FROM messages`, [], (err, row) => {
+            if (!err && row.count === 0) {
+                const ts = new Date().toLocaleTimeString();
+                db.run(`INSERT INTO messages (room, user, role, encrypted_text, timestamp) 
+                        VALUES ('#general', 'Manager', 'Manager', 'Welcome to the clinic network feed.', '${ts}')`);
+                db.run(`INSERT INTO messages (room, user, role, encrypted_text, timestamp) 
+                        VALUES ('#announcements', 'System Admin', 'Admin', 'CRITICAL: Main server maintenance at 22:00.', '${ts}')`);
+                console.log('Sample chat history seeded successfully.');
+            }
+        });
+
     })
 }
 

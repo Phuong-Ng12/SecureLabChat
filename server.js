@@ -144,6 +144,14 @@ io.on('connection', (socket) => {
         );
     });
 
+    socket.on('logout', () => {
+        ROOMS.forEach((room) => socket.leave(room));
+        session.authenticated = false;
+        session.name = null;
+        session.role = null;
+        console.log(`[LOGOUT] socket ${socket.id}`);
+    });
+
     socket.on('disconnect', () => {
         console.log(`Disconnected: ${socket.id}`);
     });

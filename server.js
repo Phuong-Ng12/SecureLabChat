@@ -13,6 +13,10 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+app.get('/admin', (req, res) => {
+    res.send('<h1>Admin dashboard placeholder</h1>');
+});
+
 // Socket.io connection logic
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);

@@ -1,61 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Secure Lab Chat</title>
-    <style>
-        body { font-family: sans-serif; margin: 20px; display: flex; flex-direction: column; height: 90vh; }
-        #chat-box { flex: 1; border: 1px solid #ccc; padding: 10px; overflow-y: scroll; margin-bottom: 10px; background: #f9f9f9; }
-        .msg { margin-bottom: 8px; }
-        .user { font-weight: bold; color: #2b6cb0; }
-        .time { font-size: 0.8em; color: #aaa; margin-left: 5px; }
-        #input-area { display: flex; gap: 10px; }
-        input { padding: 10px; font-size: 110%; }
-        #username { width: 20%; }
-        #message { width: 70%; }
-        button { width: 10%; cursor: pointer; }
-    </style>
+    <!-- Bind static decoupled infrastructure sheets -->
+    <link rel="stylesheet" href="/style.css">
+    <!-- Load Vue 3 Core Engine Framework first via CDN pipeline -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
 </head>
+
 <body>
-    <h2>Local Lab Secure Communication Channel Start Here</h2>
-    <div id="chat-box"></div>
-    
-    <div id="input-area">
-        <input type="text" id="username" placeholder="Your Name" value="Anonymous">
-        <input type="text" id="message" placeholder="Type a message..." autocomplete="off">
-        <button onclick="sendMessage()">Send</button>
+
+    <div id="app" v-cloak>
+        <!-- SCREEN VIEW A: SECURE ACCESS GATEWAY PORTAL LOGIN FORM -->
+        <div v-if="!isAuthenticated" class="login-mask">
+            <h2>Secure Lab Chat Login</h2>
+            <div v-if="authError" class="error-banner">{{ authError }}</div>
+
+            <div class="form-group">
+                <label for="usernameInput">Username:</label>
+                <input type="text" id="usernameInput" v-model="loginForm.username"
+                    placeholder="Enter username" @keyup.enter="submitAuthentication">
+            </div>
+
+            <div class="form-group">
+                <label for="passInput">Password:</label>
+                <input type="password" id="passInput" v-model="loginForm.password"
+                    placeholder="Enter password" @keyup.enter="submitAuthentication">
+            </div>
+
+            <button class="btn-primary" @click="submitAuthentication">Enter Secure Chat</button>
+        </div>
+
+        <!-- SCREEN VIEW B: CLINIC WORKSPACE CONTROL CONSOLE DASHBOARD -->
+        <div v-else class="app-workspace">
+
+            <!-- Mobile Navigation Menu Dark Dimmer Overlay Mask -->
+            <div :class="['sidebar-overlay', { 'mobile-open': isMobileMenuOpen }]" @click="isMobileMenuOpen = false">
+            </div>
+
+            <!-- Sidebar Navigation Rail Container Panel -->
+            <div :class="['sidebar', { 'mobile-open': isMobileMenuOpen }]">
+                <h3>Your Profile</h3>
+                <div class="profile-card">
+                    <p>User: <strong>{{ currentUser.name }}</strong></p>
+                    <p style="margin-top: 6px;">Privilege: <span
+                            :class="['role-tag', 'role-' + currentUser.role]">{{ currentUser.role }}</span></p>
+                </div>
+
+                <h3>Channels</h3>
+                <div class="room-list">
+                    <button v-for="room in channelMatrix" :key="room"
+                        :class="['room-btn', { active: currentRoom === room }]" @click="switchChannel(room)">
+                        {{ room }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Real-Time Chat Display Feed Area Component -->
+            <div class="chat-area">
+                <div class="chat-header">
+                    <button class="menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">☰</button>
+                    <h2>Channel: <strong>{{ currentRoom }}</strong></h2>
+                </div>
+
+                <!-- Messages Scrolling History Container List View -->
+                <div class="chat-box" id="chatFeed">
+                    <div v-for="msg in chatHistory" :key="msg.id" class="msg-container">
+                        <div class="msg-meta">
+                            <span class="msg-user">{{ msg.user }}</span>
+                            <span :class="['role-tag', 'role-' + msg.role]">{{ msg.role }}</span>
+                            <span>{{ msg.timestamp || msg.time }}</span>
+                        </div>
+                        <div class="msg-text">{{ msg.encrypted_text || msg.text }}</div>
+                    </div>
+                </div>
+
+                <!-- ROLE-BASED ACCESS CONTROL ENTRY VIEW FORM TRAY -->
+                <!-- Visible ONLY if current connection clearance allows broadcasting privileges -->
+                <div v-if="canUserPostInCurrentRoom()" class="input-tray">
+                    <input type="text" v-model="inputText" placeholder="Type a secure message and press Enter..."
+                        @keyup.enter="pushChatMessage">
+                    <button class="btn-primary" style="width: 110px;" @click="pushChatMessage">Send</button>
+                </div>
+
+                <!-- Information Notice Display Block shown exclusively to Read-Only Staff tiers -->
+                <div v-else class="read-only-notice">
+                    You are currently viewing {{ currentRoom }} in Read-Only Mode. Your Staff access level is
+                    restricted from sending a message here.
+                </div>
+            </div>
+
+        </div>
     </div>
 
-    <!-- Load Socket.io library from your local server node_modules dependency -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io(); // Automatically connects to the host server
-        const chatBox = document.getElementById('chat-box');
-
-        // Receive message from server
-        socket.on('chat_message', (data) => {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'msg';
-            msgDiv.innerHTML = `<span class="user">${data.user}</span><span class="time">${data.time}</span><br>${data.text}`;
-            chatBox.appendChild(msgDiv);
-            chatBox.scrollTop = chatBox.scrollHeight; // Auto scroll down
-        });
-
-        function sendMessage() {
-            const user = document.getElementById('username').value;
-            const messageInput = document.getElementById('message');
-            const text = messageInput.value.trim();
-
-            if (text !== "") {
-                socket.emit('chat_message', { user, text });
-                messageInput.value = "";
-            }
-        }
-
-        // Allow pressing Enter key to send
-        document.getElementById('message').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
-    </script>
+    <script src="/app.js"></script>
 </body>
+
 </html>

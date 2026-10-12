@@ -1,0 +1,350 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+#app {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f7fafc;
+    color: #2d3748;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* Cloak utility prevents template brackets from flickering before compilation completes */
+[v-cloak] {
+    display: none !important;
+}
+
+/* Login Portal Mask Container Card */
+.login-mask {
+    background: white;
+    padding: 40px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin: 20px;
+    border-top: 5px solid #3182ce;
+}
+
+.login-mask h2 {
+    text-align: center;
+    color: #1a365d;
+    font-size: 1.5em;
+    font-weight: 700;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-group label {
+    font-weight: 600;
+    font-size: 0.85em;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+input {
+    padding: 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    font-size: 1em;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+input:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+}
+
+.btn-primary {
+    background: #3182ce;
+    color: white;
+    border: none;
+    padding: 12px;
+    font-weight: bold;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background 0.2s;
+}
+
+.btn-primary:hover {
+    background: #2b6cb0;
+}
+
+.error-banner {
+    background: #fed7d7;
+    color: #c53030;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-weight: bold;
+    text-align: center;
+    border-left: 4px solid #e53e3e;
+}
+
+/* Workspace Structural Configurations */
+.app-workspace {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    background: #fff;
+    position: relative;
+}
+
+.sidebar {
+    width: 280px;
+    background: #1a202c;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    border-right: 1px solid #e2e8f0;
+    z-index: 10;
+    transition: transform 0.3s ease;
+}
+
+.sidebar h3 {
+    font-size: 0.8em;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #718096;
+    border-bottom: 1px solid #2d3748;
+    padding-bottom: 5px;
+    margin-top: 20px;
+}
+
+.sidebar h3:first-of-type {
+    margin-top: 0;
+}
+
+.profile-card {
+    background: #2d3748;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    font-size: 0.9em;
+    border-left: 4px solid #4a5568;
+}
+
+.room-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+}
+
+.room-btn {
+    padding: 12px;
+    background: #2d3748;
+    border: none;
+    color: #cbd5e0;
+    text-align: left;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.95em;
+    transition: all 0.2s;
+    width: 100%;
+}
+
+.room-btn:hover {
+    background: #4a5568;
+    color: white;
+}
+
+.room-btn.active {
+    background: #3182ce;
+    color: white;
+}
+
+/* Content Chat Display Feeds */
+.chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f7fafc;
+    height: 100%;
+    position: relative;
+}
+
+.chat-header {
+    background: white;
+    padding: 15px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    min-height: 65px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.chat-header h2 {
+    color: #2d3748;
+    font-size: 1.15em;
+    font-weight: 700;
+}
+
+.menu-toggle {
+    display: none;
+    background: #1a202c;
+    border: none;
+    color: white;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1.1em;
+}
+
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 5;
+}
+
+.chat-box {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Message Items Graphics Layouts */
+.msg-container {
+    background: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    border-left: 4px solid #e2e8f0;
+    width: fit-content;
+    max-width: 80%;
+    align-self: flex-start;
+}
+
+.msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75em;
+    color: #718096;
+    margin-bottom: 6px;
+}
+
+.msg-user {
+    font-weight: bold;
+    color: #1a202c;
+    font-size: 1em;
+}
+
+.role-tag {
+    font-size: 0.7em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: white;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.role-Admin {
+    background: #e53e3e;
+}
+
+.role-Manager {
+    background: #dd6b20;
+}
+
+.role-Supervisor {
+    background: #3182ce;
+}
+
+.role-Staff {
+    background: #718096;
+}
+
+.msg-text {
+    font-size: 0.95em;
+    line-height: 1.4;
+    color: #2d3748;
+    word-break: break-word;
+}
+
+/* Console Communication Input Control Tray footer elements */
+.input-tray {
+    background: white;
+    padding: 20px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.01);
+}
+
+.read-only-notice {
+    background: #feebc8;
+    color: #c05621;
+    padding: 15px 20px;
+    border-top: 1px solid #fbd38d;
+    font-size: 0.9em;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.2px;
+}
+
+/* Tablet & Mobile Scale Adaptations Override */
+@media (max-width: 768px) {
+    .menu-toggle {
+        display: block;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+        box-shadow: 4px 0 15px rgba(0, 0, 0, 0.15);
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-overlay.mobile-open {
+        display: block;
+    }
+
+    .msg-container {
+        max-width: 90%;
+    }
+}

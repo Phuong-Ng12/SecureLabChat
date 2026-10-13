@@ -57,7 +57,7 @@ function initializeAndSeedDatabase() {
         // seed some mock history data to test socket.on('join_room')
         db.get(`SELECT COUNT(*) as count FROM messages`, [], (err, row) => {
             if (!err && row.count === 0) {
-                const ts = new Date().toLocaleTimeString();
+                const ts = new Date().toISOString();
                 db.run(`INSERT INTO messages (room, user, role, encrypted_text, timestamp) 
                         VALUES ('#general', 'Manager', 'Manager', 'Welcome to the clinic network feed.', '${ts}')`);
                 db.run(`INSERT INTO messages (room, user, role, encrypted_text, timestamp) 

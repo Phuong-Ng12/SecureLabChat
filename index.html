@@ -76,7 +76,7 @@
                         <div class="msg-meta">
                             <span class="msg-user">{{ msg.user }}</span>
                             <span :class="['role-tag', 'role-' + msg.role]">{{ msg.role }}</span>
-                            <span>{{ msg.timestamp || msg.time }}</span>
+                            <span>{{ (msg.timestamp || msg.time || '').includes('T') &amp;&amp; !Number.isNaN(new Date(msg.timestamp || msg.time).getTime()) ? new Date(msg.timestamp || msg.time).toLocaleTimeString() : (msg.timestamp || msg.time) }}</span>
                         </div>
                         <div class="msg-text">{{ msg.encrypted_text || msg.text }}</div>
                     </div>

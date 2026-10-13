@@ -122,7 +122,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const timestamp = new Date().toLocaleTimeString();
+        const timestamp = new Date().toISOString();
 
         db.run(
             `INSERT INTO messages (room, user, role, encrypted_text, timestamp) VALUES (?, ?, ?, ?, ?)`,

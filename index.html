@@ -54,7 +54,10 @@
 
                 <h3>Channels</h3>
                 <div class="room-list">
-                    <button v-for="room in channelMatrix" :key="room"
+                    <button v-for="room in [
+                        ...channelMatrix.filter(room => room === '#announcements'),
+                        ...channelMatrix.filter(room => room !== '#announcements')
+                    ]" :key="room"
                         :class="['room-btn', { active: currentRoom === room }]" @click="switchChannel(room)">
                         {{ room }}
                     </button>

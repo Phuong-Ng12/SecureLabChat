@@ -17,6 +17,7 @@ body {
     background-color: #f7fafc;
     color: #2d3748;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -111,6 +112,7 @@ input:focus {
     display: flex;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     background: #fff;
     position: relative;
 }
@@ -227,6 +229,7 @@ input:focus {
     left: 0;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     background: rgba(0, 0, 0, 0.4);
     z-index: 5;
 }
@@ -339,6 +342,29 @@ input:focus {
     color: white;
 }
 
+/* Lets the message list shrink and scroll instead of pushing the input off-screen */
+.chat-area {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.chat-box {
+    min-height: 0;
+}
+
+/* Keeps the input clear of the phone's gesture bar */
+.input-tray,
+.read-only-notice {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Login card can scroll on short screens */
+.login-mask {
+    max-height: calc(100vh - 40px);
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+}
+
 /* Tablet & Mobile Scale Adaptations Override */
 @media (max-width: 768px) {
     .menu-toggle {
@@ -350,6 +376,7 @@ input:focus {
         top: 0;
         left: 0;
         height: 100vh;
+        height: 100dvh;
         transform: translateX(-100%);
         box-shadow: 4px 0 15px rgba(0, 0, 0, 0.15);
     }

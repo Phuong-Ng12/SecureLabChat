@@ -17,24 +17,25 @@
 
     <div id="app" v-cloak>
         <!-- SCREEN VIEW A: SECURE ACCESS GATEWAY PORTAL LOGIN FORM -->
-        <div v-if="!isAuthenticated" class="login-mask">
+        <form v-if="!isAuthenticated" class="login-mask"
+            @submit.prevent="currentRoom = '#announcements'; submitAuthentication()">
             <h2>Secure Lab Chat Login</h2>
             <div v-if="authError" class="error-banner">{{ authError }}</div>
 
             <div class="form-group">
                 <label for="usernameInput">Username:</label>
                 <input type="text" id="usernameInput" v-model="loginForm.username"
-                    placeholder="Enter username" @keyup.enter="submitAuthentication">
+                    placeholder="Enter username">
             </div>
 
             <div class="form-group">
                 <label for="passInput">Password:</label>
                 <input type="password" id="passInput" v-model="loginForm.password"
-                    placeholder="Enter password" @keyup.enter="submitAuthentication">
+                    placeholder="Enter password">
             </div>
 
-            <button class="btn-primary" @click="submitAuthentication">Enter Secure Chat</button>
-        </div>
+            <button type="submit" class="btn-primary">Enter Secure Chat</button>
+        </form>
 
         <!-- SCREEN VIEW B: CLINIC WORKSPACE CONTROL CONSOLE DASHBOARD -->
         <div v-else class="app-workspace">

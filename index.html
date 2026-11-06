@@ -76,11 +76,30 @@
                 <button class="btn-logout" @click="logout">Log Out</button>
             </div>
 
+            <!-- New announcement banner (banner mode only, shown on any screen) -->
+            <div v-if="announcementBanner" class="announce-banner" role="alert">
+                <div class="announce-text">
+                    <strong>New announcement from {{ announcementBanner.user }}</strong>
+                    <span class="announce-body">{{ announcementBanner.text }}</span>
+                    <span v-if="announcementBanner.count > 1" class="announce-more">(+{{ announcementBanner.count - 1 }} more)</span>
+                </div>
+                <button class="announce-view" @click="openAnnouncementsFromBanner">View</button>
+                <button class="announce-close" @click="dismissBanner" aria-label="Dismiss">✕</button>
+            </div>
+
             <!-- Real-Time Chat Display Feed Area Component -->
             <div v-if="!showAdmin" class="chat-area">
                 <div class="chat-header">
                     <button class="menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">☰</button>
                     <h2>Channel: <strong>{{ currentChannelLabel }}</strong></h2>
+                  
+                    <button v-if="canAskDesktopPermission" class="notify-toggle" @click="askDesktopPermission">Allow desktop alerts</button>
+                    <button class="notify-toggle" :class="{ silent: isSilent }" @click="toggleNotifyMode"
+                        :aria-pressed="isSilent ? 'true' : 'false'"
+                        :title="isSilent ? 'Silent: no announcement alerts. Tap for banner alerts.' : 'Banner alerts on. Tap for silent mode.'">
+                        <span aria-hidden="true">{{ isSilent ? '🔕' : '🔔' }}</span>
+                        <span class="notify-label">{{ isSilent ? 'Silent' : 'Banner alerts' }}</span>
+                    </button>
                 </div>
 
                 <!-- Messages Scrolling History Container List View -->

@@ -34,6 +34,33 @@ function clearToken() {
     }
 }
 
+// Notification mode is remembered per user in this browser: 'banner' (default) or 'silent'
+function notifyModeKey(username) {
+    return 'secureLabChat.notifyMode.' + username;
+}
+
+function readNotifyMode(username) {
+    try {
+        return localStorage.getItem(notifyModeKey(username)) === 'silent' ? 'silent' : 'banner';
+    } catch (e) {
+        return 'banner';
+    }
+}
+
+function saveNotifyMode(username, mode) {
+    try {
+        localStorage.setItem(notifyModeKey(username), mode);
+    } catch (e) {
+        /* the choice just will not survive a refresh */
+    }
+}
+
+// Browser pop-ups only work on https or localhost, so on a plain http LAN address
+// the in-app banner is what nurses will actually see
+function desktopAlertsSupported() {
+    return window.isSecureContext && 'Notification' in window;
+}
+
 createApp({
     setup() {
         const isAuthenticated = ref(false);
@@ -59,6 +86,69 @@ createApp({
         // The channels this user may open, sent by the server at login:
         // [{ room: '#dept-1', label: '#Pharmacy', canPost: true }, ...]
         const channels = ref([]);
+
+        // ----- Announcement alerts -----
+        const notifyMode = ref('banner');                 // 'banner' or 'silent'
+        const announcementBanner = ref(null);             // { user, text, count } or null
+        const canAskDesktopPermission = ref(
+            desktopAlertsSupported() && Notification.permission === 'default'
+        );
+        const originalTitle = document.title;
+
+        const isSilent = computed(() => notifyMode.value === 'silent');
+
+        function toggleNotifyMode() {
+            notifyMode.value = isSilent.value ? 'banner' : 'silent';
+            saveNotifyMode(currentUser.value.name, notifyMode.value);
+            // going silent also removes a banner that is already on screen
+            if (isSilent.value) announcementBanner.value = null;
+        }
+
+        function askDesktopPermission() {
+            if (!desktopAlertsSupported()) return;
+            Notification.requestPermission().then(() => {
+                canAskDesktopPermission.value = Notification.permission === 'default';
+            });
+        }
+
+        function viewingAnnouncements() {
+            return !showAdmin.value && currentRoom.value === '#announcements';
+        }
+
+        function dismissBanner() {
+            announcementBanner.value = null;
+        }
+
+        function openAnnouncementsFromBanner() {
+            announcementBanner.value = null;
+            switchChannel('#announcements');
+        }
+
+        // tab-title flash for when browser pop-ups are not possible
+        function flashTitle(text) {
+            document.title = '(new) ' + text;
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) document.title = originalTitle;
+        });
+
+        function showDesktopNotification(announcement) {
+            if (desktopAlertsSupported() && Notification.permission === 'granted') {
+                // deliberately no message text: it could show on a locked screen
+                const note = new Notification('SecureLabChat', {
+                    body: 'New announcement from ' + announcement.user,
+                    tag: 'secure-lab-chat-announcement'
+                });
+                note.onclick = () => {
+                    window.focus();
+                    openAnnouncementsFromBanner();
+                    note.close();
+                };
+            } else {
+                flashTitle('New announcement');
+            }
+        }
 
         // #announcements first, then the others in the order the server sent them
         const sidebarChannels = computed(() => [
@@ -125,6 +215,7 @@ createApp({
                 const wasLoggedIn = isAuthenticated.value;
                 currentUser.value.name = response.name;
                 currentUser.value.role = response.role;
+                notifyMode.value = readNotifyMode(response.name);
                 isAuthenticated.value = true;
                 authError.value = '';
 
@@ -181,6 +272,29 @@ createApp({
             // Append incoming message straight into the Vue active view array
             chatHistory.value.push(incomingMsg);
             scrollToBottom();
+        });
+
+        // Sent to everyone signed in, whichever channel they are looking at
+        socket.on('announcement', (announcement) => {
+            if (!isAuthenticated.value || isSilent.value) return;
+            if (announcement.user === currentUser.value.name) return; // your own post
+
+            // another tab: browser notification (or title flash when not possible)
+            if (document.hidden) showDesktopNotification(announcement);
+
+            // in-app banner, unless the announcement is already in front of the user
+            if (viewingAnnouncements() && !document.hidden) return;
+            const previous = announcementBanner.value;
+            announcementBanner.value = {
+                user: announcement.user,
+                text: announcement.encrypted_text,
+                count: previous ? previous.count + 1 : 1
+            };
+        });
+
+        // opening #announcements by any route clears the banner
+        watch([currentRoom, showAdmin], () => {
+            if (viewingAnnouncements()) announcementBanner.value = null;
         });
 
         socket.on('security_alert', (msg) => {
@@ -327,7 +441,7 @@ createApp({
 
         function pushChatMessage() {
             if (!inputText.value.trim() || !canUserPostInCurrentRoom()) return;
-            
+
             if (!inputText.value.trim()) return;
 
             // Emit package payload format matching backend tracking requirements
@@ -371,6 +485,9 @@ createApp({
             isMobileMenuOpen.value = false;
             currentView.value = 'chat';
             channels.value = [];
+            notifyMode.value = 'banner';
+            announcementBanner.value = null;
+            document.title = originalTitle;
             
             // nothing from the admin pages stays in memory for the next user
             departments.value = [];
@@ -431,6 +548,14 @@ createApp({
             switchChannel,
             pushChatMessage,
             canUserPostInCurrentRoom,
+            notifyMode,
+            isSilent,
+            toggleNotifyMode,
+            announcementBanner,
+            dismissBanner,
+            openAnnouncementsFromBanner,
+            canAskDesktopPermission,
+            askDesktopPermission,
             logout
         };
     }

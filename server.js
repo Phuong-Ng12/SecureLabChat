@@ -26,6 +26,16 @@ const ROOMS = ['#general', '#announcements'];
 // Duration of valid token (e.g. a clinic shift)
 const SESSION_HOURS = 12;
 
+// Messages older than this are no longer shown (and will be deleted by the cleanup)
+const RETENTION_HOURS = 72;
+
+const ROLES = ['Admin', 'Manager', 'Supervisor', 'Staff'];
+
+// Same hashing for login and for accounts created by an admin
+function hashPassword(password) {
+    return crypto.createHash('sha256').update(password).digest('hex');
+}
+
 // Only hashed token is stored in db
 function hashToken(token) {
     return crypto.createHash('sha256').update(token).digest('hex');
@@ -47,6 +57,7 @@ io.on('connection', (socket) => {
 
     const session = {
         authenticated: false,
+        tokenHash: null,
         userId: null,
         name: null,
         role: null,
@@ -54,8 +65,9 @@ io.on('connection', (socket) => {
         department: null
     };
 
-    function startSession(userRow) {
+    function startSession(userRow, tokenHash) {
         session.authenticated = true;
+        session.tokenHash = tokenHash;
         session.userId = userRow.id;
         session.name = userRow.username;
         session.role = userRow.role;
@@ -84,7 +96,8 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
+        // const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
+        const hash = hashPassword(credentials.password);
 
         db.get(
             `${USER_SELECT} WHERE u.username = ? AND u.password_hash = ?`,
@@ -124,7 +137,8 @@ io.on('connection', (socket) => {
                             return;
                         }
 
-                        startSession(userRow);
+                        // startSession(userRow);
+                        startSession(userRow, hashToken(token));
                         console.log(`[AUTH] ${session.name} logged in as ${session.role}`);
                         sendAuthenticated(
                             token,
@@ -176,7 +190,8 @@ io.on('connection', (socket) => {
                 }
 
                 // role and department come from the users table, not from the browser
-                startSession(row);
+                // startSession(row);
+                startSession(row, tokenHash);
                 console.log(`[RESUME] ${session.name} (${session.role})`);
                 sendAuthenticated(
                     token,
@@ -193,9 +208,15 @@ io.on('connection', (socket) => {
         socket.join(room);
         console.log(`${session.name} joined ${room}`);
 
+        // only messages from the last RETENTION_HOURS (timestamps are UTC ISO text)
+        const cutoff = new Date(Date.now() - RETENTION_HOURS * 60 * 60 * 1000).toISOString();
+
         db.all(
-            `SELECT id, user, role, encrypted_text, timestamp FROM messages WHERE room = ? ORDER BY id ASC`,
-            [room],
+            `SELECT id, user, role, encrypted_text, timestamp
+             FROM messages
+             WHERE room = ? AND timestamp >= ?
+             ORDER BY id ASC`,
+            [room, cutoff],
             (err, rows) => {
                 if (err) {
                     console.error('History error:', err.message);
@@ -247,9 +268,14 @@ io.on('connection', (socket) => {
         );
     });
 
-    socket.on('logout', () => {
+        socket.on('logout', () => {
+        // end the saved login too, otherwise a refresh would sign the user back in
+        if (session.tokenHash) {
+            db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash]);
+        }
         ROOMS.forEach((room) => socket.leave(room));
         session.authenticated = false;
+        session.tokenHash = null;
         session.userId = null;
         session.name = null;
         session.role = null;
@@ -262,6 +288,20 @@ io.on('connection', (socket) => {
         console.log(`Disconnected: ${socket.id}`);
     });
 });
+
+// Remove expired login tokens now and then every 10 minutes
+function deleteExpiredSessions() {
+    db.run(`DELETE FROM sessions WHERE expires_at <= ?`, [new Date().toISOString()], function (err) {
+        if (err) {
+            console.error('Session cleanup error:', err.message);
+        } else if (this.changes > 0) {
+            console.log(`Session cleanup: removed ${this.changes} expired token(s).`);
+        }
+    });
+}
+// first run after the database has finished its setup
+setTimeout(deleteExpiredSessions, 5000);
+setInterval(deleteExpiredSessions, 10 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

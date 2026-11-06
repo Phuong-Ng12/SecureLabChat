@@ -2,6 +2,7 @@ const {
     createApp,
     ref,
     computed,
+    watch,
     nextTick
 } = Vue;
 
@@ -60,6 +61,13 @@ createApp({
         // The dashboard is only ever shown to an Admin (the server checks every admin action too)
         const isAdmin = computed(() => currentUser.value.role === 'Admin');
         const showAdmin = computed(() => currentView.value === 'admin' && isAdmin.value);
+
+        // ---- Admin dashboard: departments ----
+        const departments = ref([]);
+        const departmentsLoading = ref(false);
+        const newDepartmentName = ref('');
+        const departmentPending = ref(false);
+        const departmentMessage = ref({ type: '', text: '' }); // type: 'ok' or 'error'
 
         // Establish the local area network socket link
         const socket = io();
@@ -131,6 +139,54 @@ createApp({
         socket.on('security_alert', (msg) => {
             alert(msg);
         });
+
+                // One listener for the answers to every admin action
+        socket.on('admin_result', (result) => {
+            if (result.action === 'list_departments') {
+                departmentsLoading.value = false;
+                if (result.success) {
+                    departments.value = result.departments;
+                } else {
+                    departmentMessage.value = { type: 'error', text: result.error };
+                }
+            }
+
+            if (result.action === 'create_department') {
+                departmentPending.value = false;
+                if (result.success) {
+                    departments.value.push(result.department);
+                    departments.value.sort((a, b) => a.name.localeCompare(b.name));
+                    newDepartmentName.value = '';
+                    departmentMessage.value = {
+                        type: 'ok',
+                        text: `Department "${result.department.name}" created.`
+                    };
+                } else {
+                    departmentMessage.value = { type: 'error', text: result.error };
+                }
+            }
+        });
+
+        // Load the department list each time the dashboard opens
+        watch(showAdmin, (visible) => {
+            if (!visible) return;
+            departmentMessage.value = { type: '', text: '' };
+            departmentsLoading.value = true;
+            socket.emit('list_departments');
+        });
+
+        function createDepartment() {
+            const name = newDepartmentName.value.trim();
+            if (!name) {
+                departmentMessage.value = { type: 'error', text: 'Enter a department name.' };
+                return;
+            }
+            if (departmentPending.value) return; // already waiting for the server
+
+            departmentMessage.value = { type: '', text: '' };
+            departmentPending.value = true;
+            socket.emit('create_department', { name });
+        }
 
 
         function submitAuthentication() {
@@ -228,6 +284,13 @@ createApp({
             inputText.value = '';
             isMobileMenuOpen.value = false;
             currentView.value = 'chat';
+            
+            // nothing from the admin pages stays in memory for the next user
+            departments.value = [];
+            departmentsLoading.value = false;
+            newDepartmentName.value = '';
+            departmentPending.value = false;
+            departmentMessage.value = { type: '', text: '' };
         }
 
         function logout() {
@@ -258,6 +321,12 @@ createApp({
             loginForm,
             channelMatrix,
             submitAuthentication,
+            departments,
+            departmentsLoading,
+            newDepartmentName,
+            departmentPending,
+            departmentMessage,
+            createDepartment,
             openAdmin,
             showChat,
             switchChannel,

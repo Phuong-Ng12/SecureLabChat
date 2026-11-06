@@ -98,6 +98,10 @@ function initializeAndSeedDatabase() {
     db.serialize(() => {
         // enforce REFERENCES ON DELETE CASCADE (SQLite has this off by default)
         db.run(`PRAGMA foreign_keys = ON`);
+        
+        // overwrite deleted rows, so a message removed by the 72-hour cleanup
+        // does not stay readable inside the database file
+        db.run(`PRAGMA secure_delete = ON`);
 
         // create user and role table
         db.run(`CREATE TABLE IF NOT EXISTS users (

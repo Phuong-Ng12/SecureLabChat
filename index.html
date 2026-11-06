@@ -126,7 +126,26 @@
 
                     <section class="admin-panel" id="adminDepartments">
                         <h3>Departments</h3>
-                        <p class="admin-empty">Department tools will appear here.</p>
+
+                        <form class="admin-form" @submit.prevent="createDepartment">
+                            <label for="deptNameInput">New department</label>
+                            <div class="admin-form-row">
+                                <input type="text" id="deptNameInput" v-model="newDepartmentName" maxlength="40"
+                                    placeholder="For example: Pharmacy" autocomplete="off">
+                                <button type="submit" class="btn-primary" :disabled="departmentPending">Add
+                                    department</button>
+                            </div>
+                        </form>
+
+                        <p v-if="departmentMessage.text" :class="['admin-message', departmentMessage.type]">
+                            {{ departmentMessage.text }}</p>
+
+                        <h4 class="admin-subtitle">Existing departments ({{ departments.length }})</h4>
+                        <p v-if="departmentsLoading" class="admin-empty">Loading...</p>
+                        <ul v-else-if="departments.length" class="dept-list">
+                            <li v-for="dept in departments" :key="dept.id">{{ dept.name }}</li>
+                        </ul>
+                        <p v-else class="admin-empty">No departments yet.</p>
                     </section>
 
                     <section class="admin-panel" id="adminUsers">

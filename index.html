@@ -16,8 +16,14 @@
 <body>
 
     <div id="app" v-cloak>
+        <!-- LOADING VIEW: shown while a saved session is being checked, so the login form does not flash -->
+        <div v-if="isResuming" class="loading-screen">
+            <div class="spinner"></div>
+            <p>Restoring your session...</p>
+        </div>
+
         <!-- SCREEN VIEW A: SECURE ACCESS GATEWAY PORTAL LOGIN FORM -->
-        <form v-if="!isAuthenticated" class="login-mask"
+        <form v-else-if="!isAuthenticated" class="login-mask"
             @submit.prevent="currentRoom = '#announcements'; submitAuthentication()">
             <h2>Secure Lab Chat Login</h2>
             <div v-if="authError" class="error-banner">{{ authError }}</div>

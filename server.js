@@ -422,28 +422,41 @@ io.on('connection', (socket) => {
         } = data;
         const text = typeof data.text === 'string' ? data.text.trim().slice(0, 1000) : '';
 
-        if (!ROOMS.includes(room) || !text) return;
+        // the room must be one of this user's own channels (#general, #announcements,
+        // or their own department), the same list that join_room checks
+        const channel = allowedChannels().find((c) => c.room === room);
+        if (!channel) {
+            socket.emit('security_alert', 'You do not have access to that channel.');
+            return;
+        }
+        if (!text) return;
 
-        if (!canPost(session.role, room, session.departmentId)) {
+        if (!channel.canPost) {
             socket.emit('security_alert', 'You do not have permission to post in this channel.');
             return;
         }
 
+        // copy now, the session can change before the database answers
+        const author = session.name;
+        const authorRole = session.role;
         const timestamp = new Date().toISOString();
 
+        // the room name (for example #dept-1) is saved, so each channel keeps its own history
         db.run(
             `INSERT INTO messages (room, user, role, encrypted_text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [room, session.name, session.role, text, timestamp],
+            [room, author, authorRole, text, timestamp],
             function (err) {
                 if (err) {
                     console.error('Insert error:', err.message);
                     return;
                 }
+                // only sockets that joined this room receive it, and join_room only
+                // lets a department's own members in
                 io.to(room).emit('chat_message', {
                     id: this.lastID,
                     room,
-                    user: session.name,
-                    role: session.role,
+                    user: author,
+                    role: authorRole,
                     encrypted_text: text,
                     timestamp
                 });
@@ -451,7 +464,7 @@ io.on('connection', (socket) => {
         );
     });
 
-        socket.on('logout', () => {
+    socket.on('logout', () => {
         // end the saved login too, otherwise a refresh would sign the user back in
         if (session.tokenHash) {
             db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash]);

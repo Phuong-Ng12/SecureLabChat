@@ -52,9 +52,14 @@ const USER_SELECT = `SELECT u.id, u.username, u.role, u.department_id, d.name AS
                      FROM users u LEFT JOIN departments d ON d.id = u.department_id`;
 
 // Server-side posting rules (the browser check is only cosmetic)
-function canPost(role, room) {
+function canPost(role, room, departmentId) {
     if (room === '#announcements') return role === 'Manager' || role === 'Admin';
     if (room === '#general') return ['Manager', 'Admin', 'Supervisor'].includes(role);
+
+    // department channel: only a Supervisor, and only in their own department
+    if (departmentId != null && room === departmentRoom(departmentId)) {
+        return role === 'Supervisor';
+    }
     return false;
 }
 
@@ -100,7 +105,7 @@ io.on('connection', (socket) => {
         const channels = ROOMS.map((room) => ({
             room,
             label: room,
-            canPost: canPost(session.role, room)
+            canPost: canPost(session.role, room, session.departmentId)
         }));
 
         if (session.departmentId != null) {
@@ -108,7 +113,7 @@ io.on('connection', (socket) => {
             channels.push({
                 room,
                 label: `#${session.department}`,
-                canPost: canPost(session.role, room)
+                canPost: canPost(session.role, room, session.departmentId)
             });
         }
         return channels;
@@ -419,7 +424,7 @@ io.on('connection', (socket) => {
 
         if (!ROOMS.includes(room) || !text) return;
 
-        if (!canPost(session.role, room)) {
+        if (!canPost(session.role, room, session.departmentId)) {
             socket.emit('security_alert', 'You do not have permission to post in this channel.');
             return;
         }
@@ -456,7 +461,7 @@ io.on('connection', (socket) => {
         [...socket.rooms].forEach((room) => {
             if (room !== socket.id) socket.leave(room);
         });
-        
+
         session.authenticated = false;
         session.tokenHash = null;
         session.userId = null;

@@ -492,7 +492,10 @@ io.on('connection', (socket) => {
     });
 });
 
-// Remove expired login tokens now and then every 10 minutes
+// How often the cleanup runs (milliseconds). CLEANUP_INTERVAL_MS can shorten it for testing.
+const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS) || 10 * 60 * 1000;
+
+// Remove expired login tokens
 function deleteExpiredSessions() {
     db.run(`DELETE FROM sessions WHERE expires_at <= ?`, [new Date().toISOString()], function (err) {
         if (err) {
@@ -502,9 +505,29 @@ function deleteExpiredSessions() {
         }
     });
 }
-// first run after the database has finished its setup
-setTimeout(deleteExpiredSessions, 5000);
-setInterval(deleteExpiredSessions, 10 * 60 * 1000);
+
+// Remove messages older than RETENTION_HOURS from every channel, so older sensitive
+// patient information does not stay in the database
+function deleteOldMessages() {
+    const cutoff = new Date(Date.now() - RETENTION_HOURS * 60 * 60 * 1000).toISOString();
+
+    db.run(`DELETE FROM messages WHERE timestamp < ?`, [cutoff], function (err) {
+        if (err) {
+            console.error('Message cleanup error:', err.message);
+        } else if (this.changes > 0) {
+            console.log(`Message cleanup: removed ${this.changes} message(s) older than ${RETENTION_HOURS} hours.`);
+        }
+    });
+}
+
+function runCleanup() {
+    deleteExpiredSessions();
+    deleteOldMessages();
+}
+
+// first run after the database has finished its setup, then on a schedule
+setTimeout(runCleanup, 5000);
+setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

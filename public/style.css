@@ -219,6 +219,75 @@ input:focus {
     }
 }
 
+.admin-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.admin-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.admin-form select {
+    padding: 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    font-size: 1em;
+    width: 100%;
+    background: white;
+    color: #2d3748;
+}
+
+.admin-form select:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+}
+
+.admin-hint {
+    color: #718096;
+    font-size: 0.85em;
+    padding-top: 10px;
+}
+
+.admin-form .admin-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #4a5568;
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.admin-form .admin-check input {
+    width: auto;
+}
+
+.admin-submit {
+    margin-top: 12px;
+    align-self: flex-start;
+    padding: 12px 22px;
+}
+
+@media (max-width: 600px) {
+    .admin-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-submit {
+        align-self: stretch;
+    }
+}
+
+
 .btn-primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;

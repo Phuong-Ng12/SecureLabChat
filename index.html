@@ -150,7 +150,56 @@
 
                     <section class="admin-panel" id="adminUsers">
                         <h3>Users</h3>
-                        <p class="admin-empty">User tools will appear here.</p>
+
+                        <form class="admin-form" @submit.prevent="createUser" autocomplete="off">
+                            <div class="admin-grid">
+                                <div class="admin-field">
+                                    <label for="userNameInput">Username</label>
+                                    <input type="text" id="userNameInput" v-model="newUser.username" maxlength="50"
+                                        placeholder="For example: Nina" autocomplete="off">
+                                </div>
+
+                                <div class="admin-field">
+                                    <label for="userPassInput">Password (at least 8 characters)</label>
+                                    <input :type="showUserPassword ? 'text' : 'password'" id="userPassInput"
+                                        v-model="newUser.password" placeholder="Temporary password"
+                                        autocomplete="new-password">
+                                </div>
+
+                                <div class="admin-field">
+                                    <label for="userRoleSelect">Role</label>
+                                    <select id="userRoleSelect" v-model="newUser.role">
+                                        <option v-for="role in USER_ROLES" :key="role" :value="role">{{ role }}
+                                        </option>
+                                    </select>
+                                </div>
+
+                                <div v-if="roleNeedsDepartment" class="admin-field">
+                                    <label for="userDeptSelect">Department</label>
+                                    <select id="userDeptSelect" v-model="newUser.departmentId">
+                                        <option value="">Select a department</option>
+                                        <option v-for="dept in departments" :key="dept.id" :value="dept.id">
+                                            {{ dept.name }}</option>
+                                    </select>
+                                    <span v-if="!departments.length && !departmentsLoading" class="admin-hint">
+                                        Create a department above first.</span>
+                                </div>
+                                <div v-else class="admin-field">
+                                    <label>Department</label>
+                                    <span class="admin-hint">Not needed. {{ newUser.role }} accounts are organization-wide.</span>
+                                </div>
+                            </div>
+
+                            <label class="admin-check">
+                                <input type="checkbox" v-model="showUserPassword"> Show password
+                            </label>
+
+                            <button type="submit" class="btn-primary admin-submit" :disabled="userPending">Create
+                                user</button>
+                        </form>
+
+                        <p v-if="userMessage.text" :class="['admin-message', userMessage.type]">{{ userMessage.text }}
+                        </p>
                     </section>
                 </div>
             </div>

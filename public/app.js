@@ -68,6 +68,23 @@ createApp({
         const newDepartmentName = ref('');
         const departmentPending = ref(false);
         const departmentMessage = ref({ type: '', text: '' }); // type: 'ok' or 'error'
+        
+        // ---- Admin dashboard: new user form ----
+        const USER_ROLES = ['Staff', 'Supervisor', 'Manager', 'Admin'];
+        const emptyUserForm = () => ({ username: '', password: '', role: 'Staff', departmentId: '' });
+        const newUser = ref(emptyUserForm());
+        const showUserPassword = ref(false);
+        const userPending = ref(false);
+        const userMessage = ref({ type: '', text: '' });
+
+        // Supervisors and Staff belong to a department. Admin and Manager are company-wide.
+        const roleNeedsDepartment = computed(() =>
+            newUser.value.role === 'Staff' || newUser.value.role === 'Supervisor');
+
+        // a company-wide role has no department, so forget a choice made for another role
+        watch(() => newUser.value.role, () => {
+            if (!roleNeedsDepartment.value) newUser.value.departmentId = '';
+        });
 
         // Establish the local area network socket link
         const socket = io();
@@ -165,12 +182,31 @@ createApp({
                     departmentMessage.value = { type: 'error', text: result.error };
                 }
             }
+
+            if (result.action === 'create_user') {
+                userPending.value = false;
+                if (result.success) {
+                    const made = result.user;
+                    userMessage.value = {
+                        type: 'ok',
+                        text: `User "${made.username}" created as ${made.role}` +
+                            (made.department ? ` in ${made.department}.` : '.')
+                    };
+                    // keep role and department (handy for adding several people),
+                    // but never keep the password around
+                    newUser.value.username = '';
+                    newUser.value.password = '';
+                    showUserPassword.value = false;
+                } else {
+                    userMessage.value = { type: 'error', text: result.error };
+                }
+            }
         });
 
         // Load the department list each time the dashboard opens
         watch(showAdmin, (visible) => {
             if (!visible) return;
-            departmentMessage.value = { type: '', text: '' };
+            userMessage.value = { type: '', text: '' };
             departmentsLoading.value = true;
             socket.emit('list_departments');
         });
@@ -186,6 +222,33 @@ createApp({
             departmentMessage.value = { type: '', text: '' };
             departmentPending.value = true;
             socket.emit('create_department', { name });
+        }
+
+        function createUser() {
+            if (userPending.value) return; // already waiting for the server
+
+            const form = newUser.value;
+            const username = form.username.trim();
+            const fail = (text) => {
+                userMessage.value = { type: 'error', text };
+            };
+
+            // the server checks all of this again, these messages just save a round trip
+            if (!username) return fail('Enter a username.');
+            if (username.length > 50) return fail('Username must be 50 characters or fewer.');
+            if (form.password.length < 8) return fail('Password must be at least 8 characters.');
+            if (roleNeedsDepartment.value && form.departmentId === '') {
+                return fail('Choose a department for this role.');
+            }
+
+            userMessage.value = { type: '', text: '' };
+            userPending.value = true;
+            socket.emit('create_user', {
+                username,
+                password: form.password,
+                role: form.role,
+                departmentId: roleNeedsDepartment.value ? Number(form.departmentId) : null
+            });
         }
 
 
@@ -291,6 +354,10 @@ createApp({
             newDepartmentName.value = '';
             departmentPending.value = false;
             departmentMessage.value = { type: '', text: '' };
+            newUser.value = emptyUserForm();
+            showUserPassword.value = false;
+            userPending.value = false;
+            userMessage.value = { type: '', text: '' };
         }
 
         function logout() {
@@ -327,6 +394,13 @@ createApp({
             departmentPending,
             departmentMessage,
             createDepartment,
+            USER_ROLES,
+            newUser,
+            showUserPassword,
+            userPending,
+            userMessage,
+            roleNeedsDepartment,
+            createUser,
             openAdmin,
             showChat,
             switchChannel,

@@ -66,12 +66,10 @@
 
                 <h3>Channels</h3>
                 <div class="room-list">
-                    <button v-for="room in [
-                        ...channelMatrix.filter(room => room === '#announcements'),
-                        ...channelMatrix.filter(room => room !== '#announcements')
-                    ]" :key="room"
-                        :class="['room-btn', { active: !showAdmin && currentRoom === room }]" @click="switchChannel(room)">
-                        {{ room }}
+                    <button v-for="channel in sidebarChannels" :key="channel.room"
+                        :class="['room-btn', { active: !showAdmin && currentRoom === channel.room }]"
+                        @click="switchChannel(channel.room)">
+                        {{ channel.label }}
                     </button>
                 </div>
                 
@@ -82,7 +80,7 @@
             <div v-if="!showAdmin" class="chat-area">
                 <div class="chat-header">
                     <button class="menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">☰</button>
-                    <h2>Channel: <strong>{{ currentRoom }}</strong></h2>
+                    <h2>Channel: <strong>{{ currentChannelLabel }}</strong></h2>
                 </div>
 
                 <!-- Messages Scrolling History Container List View -->
@@ -107,7 +105,7 @@
 
                 <!-- Information Notice Display Block shown exclusively to Read-Only Staff tiers -->
                 <div v-else class="read-only-notice">
-                    You are currently viewing {{ currentRoom }} in Read-Only Mode. Your Staff access level is
+                    You are currently viewing {{ currentChannelLabel }} in Read-Only Mode. Your Staff access level is
                     restricted from sending a message here.
                 </div>
             </div>

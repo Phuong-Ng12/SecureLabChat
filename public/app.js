@@ -56,7 +56,21 @@ createApp({
             password: ''
         });
 
-        const channelMatrix = ref(['#general', '#announcements']);
+        // The channels this user may open, sent by the server at login:
+        // [{ room: '#dept-1', label: '#Pharmacy', canPost: true }, ...]
+        const channels = ref([]);
+
+        // #announcements first, then the others in the order the server sent them
+        const sidebarChannels = computed(() => [
+            ...channels.value.filter((c) => c.room === '#announcements'),
+            ...channels.value.filter((c) => c.room !== '#announcements')
+        ]);
+
+        // the name to show for the current channel (a department room shows its department)
+        const currentChannelLabel = computed(() => {
+            const channel = channels.value.find((c) => c.room === currentRoom.value);
+            return channel ? channel.label : currentRoom.value;
+        });
 
         // The dashboard is only ever shown to an Admin (the server checks every admin action too)
         const isAdmin = computed(() => currentUser.value.role === 'Admin');
@@ -114,8 +128,21 @@ createApp({
                 isAuthenticated.value = true;
                 authError.value = '';
 
+                // the channel list comes from the server, so a new department channel
+                // needs no code change here
+                channels.value = response.channels || [
+                    { room: '#general', label: '#general', canPost: false },
+                    { room: '#announcements', label: '#announcements', canPost: false }
+                ];
+
                 // after a page refresh start in #announcements, like a normal login does
                 if (!wasLoggedIn && response.resumed) currentRoom.value = '#announcements';
+
+                // if the channel we were in is no longer ours (for example the user was
+                // moved to another department), fall back to #announcements
+                if (!channels.value.some((c) => c.room === currentRoom.value)) {
+                    currentRoom.value = '#announcements';
+                }
 
                 // /admin opens the dashboard for an Admin, everyone else goes to the chat
                 if (location.pathname === '/admin') {
@@ -148,6 +175,9 @@ createApp({
         });
 
         socket.on('chat_message', (incomingMsg) => {
+            // only show it if it belongs to the channel on screen
+            if (incomingMsg.room !== currentRoom.value) return;
+
             // Append incoming message straight into the Vue active view array
             chatHistory.value.push(incomingMsg);
             scrollToBottom();
@@ -347,6 +377,7 @@ createApp({
             inputText.value = '';
             isMobileMenuOpen.value = false;
             currentView.value = 'chat';
+            channels.value = [];
             
             // nothing from the admin pages stays in memory for the next user
             departments.value = [];
@@ -386,7 +417,8 @@ createApp({
             inputText,
             currentUser,
             loginForm,
-            channelMatrix,
+            sidebarChannels,
+            currentChannelLabel,
             submitAuthentication,
             departments,
             departmentsLoading,

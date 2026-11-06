@@ -25,6 +25,10 @@ app.get('/admin', (req, res) => {
 
 const ROOMS = ['#general', '#announcements'];
 
+// Every logged-in socket joins this room, so a new announcement can reach people who
+// are reading another channel. It is not a channel and never shown to users.
+const SIGNED_IN_ROOM = 'signed-in-users';
+
 // A department channel has primary key which is the department id, so two similar names can
 // never clash. The visible name comes from the departments table.
 function departmentRoom(departmentId) {
@@ -79,6 +83,7 @@ io.on('connection', (socket) => {
     };
 
     function startSession(userRow, tokenHash) {
+        socket.join(SIGNED_IN_ROOM);
         session.authenticated = true;
         session.tokenHash = tokenHash;
         session.userId = userRow.id;
@@ -454,14 +459,30 @@ io.on('connection', (socket) => {
                 }
                 // only sockets that joined this room receive it, and join_room only
                 // lets a department's own members in
-                io.to(room).emit('chat_message', {
+                // io.to(room).emit('chat_message', {
+                //     id: this.lastID,
+                //     room,
+                //     user: author,
+                //     role: authorRole,
+                //     encrypted_text: text,
+                //     timestamp
+                // });
+
+                const saved = {
                     id: this.lastID,
                     room,
                     user: author,
                     role: authorRole,
                     encrypted_text: text,
                     timestamp
-                });
+                };
+
+                io.to(room).emit('chat_message', saved);
+
+                // everyone signed in hears about a new announcement, whatever channel they are in
+                if (room === '#announcements') {
+                    io.to(SIGNED_IN_ROOM).emit('announcement', saved);
+                }
             }
         );
     });

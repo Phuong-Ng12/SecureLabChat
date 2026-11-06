@@ -4,9 +4,39 @@ const {
     nextTick
 } = Vue;
 
+// Where the browser keeps the login token between page loads
+const TOKEN_KEY = 'secureLabChat.token';
+
+// localStorage can be blocked (private window, strict settings), so never let it crash the app
+function readToken() {
+    try {
+        return localStorage.getItem(TOKEN_KEY);
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveToken(token) {
+    try {
+        localStorage.setItem(TOKEN_KEY, token);
+    } catch (e) {
+        /* the user will simply have to log in again after a refresh */
+    }
+}
+
+function clearToken() {
+    try {
+        localStorage.removeItem(TOKEN_KEY);
+    } catch (e) {
+        /* nothing to clear */
+    }
+}
+
 createApp({
     setup() {
         const isAuthenticated = ref(false);
+        // true while a saved token is being checked, so the login form does not flash
+        const isResuming = ref(!!readToken());
         const authError = ref('');
         const currentRoom = ref('#general');
         const chatHistory = ref([]);
@@ -28,15 +58,44 @@ createApp({
         // Establish the local area network socket link
         const socket = io();
 
+        // Every time the socket connects (page load, or reconnect after the server
+        // restarted) try to continue the saved session instead of asking for a password.
+        socket.on('connect', () => {
+            const token = readToken();
+            if (token) socket.emit('resume_session', token);
+        });
+
+        // If the server never answers, show the login form. The token is kept, so the
+        // session still resumes by itself once the server is reachable again.
+        setTimeout(() => {
+            isResuming.value = false;
+        }, 5000);
+
         socket.on('authenticated', (response) => {
+            isResuming.value = false;
+
             if (response.success) {
+                if (response.token) saveToken(response.token);
+
+                const wasLoggedIn = isAuthenticated.value;
                 currentUser.value.name = response.name;
                 currentUser.value.role = response.role;
                 isAuthenticated.value = true;
                 authError.value = '';
 
-                // Auto-fetch landing page history logs
+                // after a page refresh start in #announcements, like a normal login does
+                if (!wasLoggedIn && response.resumed) currentRoom.value = '#announcements';
+
+                // Auto-fetch landing page history logs (also re-joins the room after a reconnect)
                 socket.emit('join_room', currentRoom.value);
+            } else if (response.resume) {
+                // the saved token is not valid any more
+                clearToken();
+                if (isAuthenticated.value) {
+                    resetToLogin(response.error);
+                } else {
+                    authError.value = response.error;
+                }
             } else {
                 authError.value = response.error;
             }
@@ -112,9 +171,9 @@ createApp({
             });
         }
 
-        function logout() {
-            socket.emit('logout');
-
+        // Back to the login form without telling the server (used by logout and
+        // when the saved session turns out to be invalid)
+        function resetToLogin(message = '') {
             isAuthenticated.value = false;
             currentUser.value = {
                 name: '',
@@ -124,15 +183,29 @@ createApp({
                 username: '',
                 password: ''
             };
-            authError.value = '';
+            authError.value = message;
             chatHistory.value = [];
             currentRoom.value = '#general';
             inputText.value = '';
             isMobileMenuOpen.value = false;
         }
 
+        function logout() {
+            socket.emit('logout');
+            clearToken();
+            resetToLogin();
+        }
+
+        // Logging out in another tab removes the token, so sign this tab out too
+        window.addEventListener('storage', (event) => {
+            if (event.key === TOKEN_KEY && !event.newValue && isAuthenticated.value) {
+                resetToLogin('You were signed out in another tab.');
+            }
+        });
+
         return {
             isAuthenticated,
+            isResuming,
             authError,
             currentRoom,
             chatHistory,

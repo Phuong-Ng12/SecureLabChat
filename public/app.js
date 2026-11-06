@@ -326,6 +326,8 @@ createApp({
         }
 
         function pushChatMessage() {
+            if (!inputText.value.trim() || !canUserPostInCurrentRoom()) return;
+            
             if (!inputText.value.trim()) return;
 
             // Emit package payload format matching backend tracking requirements
@@ -336,20 +338,11 @@ createApp({
             inputText.value = ''; // Wipe user input field immediately
         }
 
-        // Enforce visible entry restrictions for input control trays
+        // The send box follows the server's answer for this channel, so the screen
+        // always matches the rules the server enforces (the server still checks every message)
         function canUserPostInCurrentRoom() {
-            const role = currentUser.value.role;
-            const room = currentRoom.value;
-
-            if (room === '#announcements') {
-                // Only Manager or Admin can post in global updates
-                return role === 'Manager' || role === 'Admin';
-            }
-            if (room === '#general') {
-                // Manager, Admin, and Supervisor can post; Staff can only read
-                return role === 'Manager' || role === 'Admin' || role === 'Supervisor';
-            }
-            return false;
+            const channel = channels.value.find((c) => c.room === currentRoom.value);
+            return !!(channel && channel.canPost);
         }
 
         function scrollToBottom() {

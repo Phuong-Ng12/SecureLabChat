@@ -23,6 +23,12 @@ app.get('/admin', (req, res) => {
 
 const ROOMS = ['#general', '#announcements'];
 
+// A department channel has primary key which is the department id, so two similar names can
+// never clash. The visible name comes from the departments table.
+function departmentRoom(departmentId) {
+    return `#dept-${departmentId}`;
+}
+
 // Duration of valid token (e.g. a clinic shift)
 const SESSION_HOURS = 12;
 
@@ -81,10 +87,31 @@ io.on('connection', (socket) => {
             name: session.name,
             role: session.role,
             department: session.department,
+            channels: allowedChannels(), 
             token,
             expiresAt,
             resumed
         });
+    }
+
+    // Every channel this user may open, and whether they may post in it.
+    // Used to build the sidebar AND to check join_room, so they always agree.
+    function allowedChannels() {
+        const channels = ROOMS.map((room) => ({
+            room,
+            label: room,
+            canPost: canPost(session.role, room)
+        }));
+
+        if (session.departmentId != null) {
+            const room = departmentRoom(session.departmentId);
+            channels.push({
+                room,
+                label: `#${session.department}`,
+                canPost: canPost(session.role, room)
+            });
+        }
+        return channels;
     }
 
     socket.on('authenticate', (credentials) => {
@@ -348,7 +375,13 @@ io.on('connection', (socket) => {
     });
 
     socket.on('join_room', (room) => {
-        if (!session.authenticated || !ROOMS.includes(room)) return;
+        if (!session.authenticated) return;
+
+        // same answer for "other department" and "does not exist", so nothing leaks
+        if (typeof room !== 'string' || !allowedChannels().some((c) => c.room === room)) {
+            socket.emit('security_alert', 'You do not have access to that channel.');
+            return;
+        }
 
         socket.join(room);
         console.log(`${session.name} joined ${room}`);
@@ -418,7 +451,12 @@ io.on('connection', (socket) => {
         if (session.tokenHash) {
             db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash]);
         }
-        ROOMS.forEach((room) => socket.leave(room));
+        
+        // leave every room (general, announcements and the department room)
+        [...socket.rooms].forEach((room) => {
+            if (room !== socket.id) socket.leave(room);
+        });
+        
         session.authenticated = false;
         session.tokenHash = null;
         session.userId = null;

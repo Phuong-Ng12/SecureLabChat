@@ -202,6 +202,151 @@ io.on('connection', (socket) => {
         );
     });
 
+    // ---------- Admin events ----------
+
+    // Same for every admin result so the dashboard needs one listener
+    function adminResult(action, success, payload) {
+        socket.emit('admin_result', { action, success, ...payload });
+    }
+
+    // The role always comes from the server-side session, never from the browser
+    function requireAdmin(action) {
+        if (session.authenticated && session.role === 'Admin') return true;
+        adminResult(action, false, { error: 'Only admins can do this.' });
+        return false;
+    }
+
+    socket.on('list_departments', () => {
+        if (!requireAdmin('list_departments')) return;
+
+        db.all(`SELECT id, name FROM departments ORDER BY name`, [], (err, rows) => {
+            if (err) {
+                console.error('List departments error:', err.message);
+                adminResult('list_departments', false, { error: 'Database failure.' });
+                return;
+            }
+            adminResult('list_departments', true, { departments: rows });
+        });
+    });
+
+    socket.on('create_department', (data) => {
+        if (!requireAdmin('create_department')) return;
+
+        const name = data && typeof data.name === 'string' ? data.name.trim() : '';
+        if (!name) {
+            adminResult('create_department', false, { error: 'Department name is required.' });
+            return;
+        }
+        if (name.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9 \-]*$/.test(name)) {
+            adminResult('create_department', false, {
+                error: 'Use up to 40 letters, numbers, spaces or hyphens.'
+            });
+            return;
+        }
+
+        // departments.name is UNIQUE and case-insensitive, so a duplicate fails here
+        db.run(`INSERT INTO departments (name) VALUES (?)`, [name], function (err) {
+            if (err) {
+                const duplicate = err.code === 'SQLITE_CONSTRAINT';
+                if (!duplicate) console.error('Create department error:', err.message);
+                adminResult('create_department', false, {
+                    error: duplicate ? 'That department already exists.' : 'Database failure.'
+                });
+                return;
+            }
+            console.log(`[ADMIN] ${session.name} created department ${name}`);
+            adminResult('create_department', true, { department: { id: this.lastID, name } });
+        });
+    });
+
+    socket.on('create_user', (data) => {
+        if (!requireAdmin('create_user')) return;
+
+        const fail = (error) => adminResult('create_user', false, { error });
+
+        if (!data || typeof data.username !== 'string' || typeof data.password !== 'string' ||
+            typeof data.role !== 'string') {
+            fail('Username, password and role are required.');
+            return;
+        }
+
+        const username = data.username.trim();
+        const { password, role } = data;
+
+        if (!username || username.length > 50) {
+            fail('Username must be 1 to 50 characters.');
+            return;
+        }
+        if (password.length < 8) {
+            fail('Password must be at least 8 characters.');
+            return;
+        }
+        if (!ROLES.includes(role)) {
+            fail('Unknown role.');
+            return;
+        }
+
+        // Supervisors and Staff belong to a department. Admin and Manager are company-wide.
+        const needsDepartment = role === 'Supervisor' || role === 'Staff';
+        const departmentId = needsDepartment ? Number(data.departmentId) : null;
+
+        if (needsDepartment && !Number.isInteger(departmentId)) {
+            fail('Choose a department for this role.');
+            return;
+        }
+
+        const insertUser = (departmentName) => {
+            // usernames are compared without case so "staff" cannot shadow "Staff"
+            db.get(`SELECT id FROM users WHERE username = ? COLLATE NOCASE`, [username], (err, existing) => {
+                if (err) {
+                    console.error('Create user lookup error:', err.message);
+                    fail('Database failure.');
+                    return;
+                }
+                if (existing) {
+                    fail('That username is already taken.');
+                    return;
+                }
+
+                db.run(
+                    `INSERT INTO users (username, password_hash, role, department_id) VALUES (?, ?, ?, ?)`,
+                    [username, hashPassword(password), role, departmentId],
+                    function (insertErr) {
+                        if (insertErr) {
+                            const duplicate = insertErr.code === 'SQLITE_CONSTRAINT';
+                            if (!duplicate) console.error('Create user error:', insertErr.message);
+                            fail(duplicate ? 'That username is already taken.' : 'Database failure.');
+                            return;
+                        }
+                        console.log(`[ADMIN] ${session.name} created user ${username} (${role})`);
+                        // the password hash is never sent back
+                        adminResult('create_user', true, {
+                            user: { id: this.lastID, username, role, department: departmentName }
+                        });
+                    }
+                );
+            });
+        };
+
+        if (!needsDepartment) {
+            insertUser(null);
+            return;
+        }
+
+        db.get(`SELECT name FROM departments WHERE id = ?`, [departmentId], (err, dept) => {
+            if (err) {
+                console.error('Create user department error:', err.message);
+                fail('Database failure.');
+                return;
+            }
+            if (!dept) {
+                fail('That department does not exist.');
+                return;
+            }
+            insertUser(dept.name);
+        });
+    });
+
     socket.on('join_room', (room) => {
         if (!session.authenticated || !ROOMS.includes(room)) return;
 

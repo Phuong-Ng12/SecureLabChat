@@ -1,6 +1,7 @@
 const {
     createApp,
     ref,
+    computed,
     nextTick
 } = Vue;
 
@@ -42,6 +43,7 @@ createApp({
         const chatHistory = ref([]);
         const isMobileMenuOpen = ref(false);
         const inputText = ref('');
+        const currentView = ref('chat'); // 'chat' or 'admin'
 
         const currentUser = ref({
             name: '',
@@ -54,6 +56,10 @@ createApp({
         });
 
         const channelMatrix = ref(['#general', '#announcements']);
+
+        // The dashboard is only ever shown to an Admin (the server checks every admin action too)
+        const isAdmin = computed(() => currentUser.value.role === 'Admin');
+        const showAdmin = computed(() => currentView.value === 'admin' && isAdmin.value);
 
         // Establish the local area network socket link
         const socket = io();
@@ -85,6 +91,16 @@ createApp({
 
                 // after a page refresh start in #announcements, like a normal login does
                 if (!wasLoggedIn && response.resumed) currentRoom.value = '#announcements';
+
+                // /admin opens the dashboard for an Admin, everyone else goes to the chat
+                if (location.pathname === '/admin') {
+                    if (response.role === 'Admin') {
+                        currentView.value = 'admin';
+                    } else {
+                        currentView.value = 'chat';
+                        history.replaceState({}, '', '/');
+                    }
+                }
 
                 // Auto-fetch landing page history logs (also re-joins the room after a reconnect)
                 socket.emit('join_room', currentRoom.value);
@@ -126,8 +142,31 @@ createApp({
             socket.emit('authenticate', loginForm.value);
         }
 
+        function openAdmin() {
+            if (!isAdmin.value) return;
+            currentView.value = 'admin';
+            isMobileMenuOpen.value = false;
+            if (location.pathname !== '/admin') history.pushState({}, '', '/admin');
+        }
+
+        function showChat() {
+            currentView.value = 'chat';
+            if (location.pathname === '/admin') history.pushState({}, '', '/');
+        }
+
+        // the browser Back and Forward buttons move between the chat and the dashboard
+        window.addEventListener('popstate', () => {
+            currentView.value = (isAdmin.value && location.pathname === '/admin') ? 'admin' : 'chat';
+        });
+
         function switchChannel(targetRoom) {
-            if (targetRoom === currentRoom.value) return;
+            // picking a channel from the dashboard goes back to the chat
+            const cameFromAdmin = currentView.value === 'admin';
+            if (cameFromAdmin) showChat();
+            if (targetRoom === currentRoom.value) {
+                if (cameFromAdmin) isMobileMenuOpen.value = false;
+                return;
+            }
 
             socket.emit('leave_room', currentRoom.value);
             currentRoom.value = targetRoom;
@@ -188,12 +227,14 @@ createApp({
             currentRoom.value = '#general';
             inputText.value = '';
             isMobileMenuOpen.value = false;
+            currentView.value = 'chat';
         }
 
         function logout() {
             socket.emit('logout');
             clearToken();
             resetToLogin();
+            if (location.pathname === '/admin') history.replaceState({}, '', '/');
         }
 
         // Logging out in another tab removes the token, so sign this tab out too
@@ -206,6 +247,8 @@ createApp({
         return {
             isAuthenticated,
             isResuming,
+            isAdmin,
+            showAdmin,
             authError,
             currentRoom,
             chatHistory,
@@ -215,6 +258,8 @@ createApp({
             loginForm,
             channelMatrix,
             submitAuthentication,
+            openAdmin,
+            showChat,
             switchChannel,
             pushChatMessage,
             canUserPostInCurrentRoom,

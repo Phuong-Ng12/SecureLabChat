@@ -59,13 +59,18 @@
                             :class="['role-tag', 'role-' + currentUser.role]">{{ currentUser.role }}</span></p>
                 </div>
 
+                <h3 v-if="isAdmin">Administration</h3>
+                <div v-if="isAdmin" class="admin-nav">
+                    <button :class="['room-btn', { active: showAdmin }]" @click="openAdmin">Admin Dashboard</button>
+                </div>
+
                 <h3>Channels</h3>
                 <div class="room-list">
                     <button v-for="room in [
                         ...channelMatrix.filter(room => room === '#announcements'),
                         ...channelMatrix.filter(room => room !== '#announcements')
                     ]" :key="room"
-                        :class="['room-btn', { active: currentRoom === room }]" @click="switchChannel(room)">
+                        :class="['room-btn', { active: !showAdmin && currentRoom === room }]" @click="switchChannel(room)">
                         {{ room }}
                     </button>
                 </div>
@@ -74,7 +79,7 @@
             </div>
 
             <!-- Real-Time Chat Display Feed Area Component -->
-            <div class="chat-area">
+            <div v-if="!showAdmin" class="chat-area">
                 <div class="chat-header">
                     <button class="menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">☰</button>
                     <h2>Channel: <strong>{{ currentRoom }}</strong></h2>
@@ -104,6 +109,30 @@
                 <div v-else class="read-only-notice">
                     You are currently viewing {{ currentRoom }} in Read-Only Mode. Your Staff access level is
                     restricted from sending a message here.
+                </div>
+            </div>
+
+            <!-- ADMIN DASHBOARD: only rendered for the Admin role -->
+            <div v-else class="chat-area admin-area">
+                <div class="chat-header">
+                    <button class="menu-toggle" @click="isMobileMenuOpen = !isMobileMenuOpen">☰</button>
+                    <h2>Admin Dashboard</h2>
+                    <button class="btn-back" @click="showChat">Back to chat</button>
+                </div>
+
+                <div class="admin-body">
+                    <p class="admin-intro">Signed in as <strong>{{ currentUser.name }}</strong>. Only Admin accounts
+                        can open this page.</p>
+
+                    <section class="admin-panel" id="adminDepartments">
+                        <h3>Departments</h3>
+                        <p class="admin-empty">Department tools will appear here.</p>
+                    </section>
+
+                    <section class="admin-panel" id="adminUsers">
+                        <h3>Users</h3>
+                        <p class="admin-empty">User tools will appear here.</p>
+                    </section>
                 </div>
             </div>
 

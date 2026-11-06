@@ -17,8 +17,10 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// The admin dashboard is a view inside the same page. The page itself holds no data:
+// every admin action is checked on the server (create_department, create_user).
 app.get('/admin', (req, res) => {
-    res.send('<h1>Admin dashboard placeholder</h1>');
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 const ROOMS = ['#general', '#announcements'];

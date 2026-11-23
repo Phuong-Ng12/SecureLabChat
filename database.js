@@ -1,5 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
-const crypto = require('crypto');
+const { hashPassword } = require('./lib/passwords');
 const fs = require('fs');
 const path = require('path');
 // fs.mkdirSync('./data', { recursive: true });
@@ -45,7 +45,7 @@ function addColumnIfMissing(table, column, definition, done) {
 
 // seed mock data, password for all: diamond539
 function seedData() {
-    const defaultHash = crypto.createHash('sha256').update('diamond539').digest('hex');
+    // const defaultHash = crypto.createHash('sha256').update('diamond539').digest('hex');
 
     const seedDepartments = ['Pharmacy', 'Emergency'];
 
@@ -67,7 +67,7 @@ function seedData() {
         seedUsers.forEach((user) => {
             db.run(
                 `INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)`,
-                [user.name, defaultHash, user.role]
+                [user.name, hashPassword('diamond539'), user.role]
             );
             // only fills an empty department, so later changes by an admin are kept
             if (user.dept) {

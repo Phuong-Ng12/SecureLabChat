@@ -6,7 +6,7 @@ const {
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./database');
-const { hashPassword, hashToken } = require('./lib/passwords');
+const { hashPassword, verifyPassword, isLegacyHash, hashToken } = require('./lib/passwords');
 const { ROOMS, ROLES, departmentRoom, canPost } = require('./lib/permissions');
 
 const app = express();
@@ -56,7 +56,7 @@ const RETENTION_HOURS = 72;
 // }
 
 // Query a user with their department. Login handler also uses this string
-const USER_SELECT = `SELECT u.id, u.username, u.role, u.department_id, d.name AS department
+const USER_SELECT = `SELECT u.id, u.username, u.password_hash, u.role, u.department_id, d.name AS department
                      FROM users u LEFT JOIN departments d ON d.id = u.department_id`;
 
 // Server-side posting rules (the browser check is only cosmetic)
@@ -138,11 +138,13 @@ io.on('connection', (socket) => {
         }
 
         // const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
-        const hash = hashPassword(credentials.password);
+        // const hash = hashPassword(credentials.password);
 
         db.get(
-            `${USER_SELECT} WHERE u.username = ? AND u.password_hash = ?`,
-            [credentials.username.trim(), hash],
+            // The salt is stored inside password_hash, so the row is found by username
+            // and the password is checked afterwards.
+           `${USER_SELECT} WHERE u.username = ?`,
+            [credentials.username.trim()],
             (err, userRow) => {
                 if (err) {
                     console.error('SQL Auth Error:', err.message);
@@ -152,14 +154,19 @@ io.on('connection', (socket) => {
                     });
                     return;
                 }
-                if (!userRow) {
+                if (!userRow || !verifyPassword(credentials.password, userRow.password_hash)) {
                     socket.emit('authenticated', {
                         success: false,
                         error: 'Access Denied: Invalid credentials.'
                     });
                     return;
                 }
-
+                
+                // an account made before salting is upgraded the first time it logs in
+                if (isLegacyHash(userRow.password_hash)) {
+                    db.run(`UPDATE users SET password_hash = ? WHERE id = ?`,
+                        [hashPassword(credentials.password), userRow.id]);
+                }
                 // create a random token that is valid for SESSION_HOURS
                 const token = crypto.randomBytes(32).toString('hex');
                 const now = new Date();

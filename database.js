@@ -1,9 +1,14 @@
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
 const fs = require('fs');
-fs.mkdirSync('./data', { recursive: true });
+const path = require('path');
+// fs.mkdirSync('./data', { recursive: true });
 
-const DB_PATH = './data/chat.db';
+// DB_PATH lets tests use DB_PATH=:memory: (a fresh database that is never written to disk)
+const DB_PATH = process.env.DB_PATH || './data/chat.db';
+if (DB_PATH !== ':memory:') {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
 
 // initialize SQLite database instance
 const db = new sqlite3.Database(DB_PATH, (err) => {

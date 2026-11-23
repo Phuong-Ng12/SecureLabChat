@@ -6,6 +6,8 @@ const {
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./database');
+const { hashPassword, hashToken } = require('./lib/passwords');
+const { ROOMS, ROLES, departmentRoom, canPost } = require('./lib/permissions');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,7 +25,7 @@ app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const ROOMS = ['#general', '#announcements'];
+// const ROOMS = ['#general', '#announcements'];
 
 // Every logged-in socket joins this room, so a new announcement can reach people who
 // are reading another channel. It is not a channel and never shown to users.
@@ -31,9 +33,9 @@ const SIGNED_IN_ROOM = 'signed-in-users';
 
 // A department channel has primary key which is the department id, so two similar names can
 // never clash. The visible name comes from the departments table.
-function departmentRoom(departmentId) {
-    return `#dept-${departmentId}`;
-}
+// function departmentRoom(departmentId) {
+//     return `#dept-${departmentId}`;
+// }
 
 // Duration of valid token (e.g. a clinic shift)
 const SESSION_HOURS = 12;
@@ -41,33 +43,33 @@ const SESSION_HOURS = 12;
 // Messages older than this are no longer shown (and will be deleted by the cleanup)
 const RETENTION_HOURS = 72;
 
-const ROLES = ['Admin', 'Manager', 'Supervisor', 'Staff'];
+// const ROLES = ['Admin', 'Manager', 'Supervisor', 'Staff'];
 
 // Same hashing for login and for accounts created by an admin
-function hashPassword(password) {
-    return crypto.createHash('sha256').update(password).digest('hex');
-}
+// function hashPassword(password) {
+//     return crypto.createHash('sha256').update(password).digest('hex');
+// }
 
 // Only hashed token is stored in db
-function hashToken(token) {
-    return crypto.createHash('sha256').update(token).digest('hex');
-}
+// function hashToken(token) {
+//     return crypto.createHash('sha256').update(token).digest('hex');
+// }
 
 // Query a user with their department. Login handler also uses this string
 const USER_SELECT = `SELECT u.id, u.username, u.role, u.department_id, d.name AS department
                      FROM users u LEFT JOIN departments d ON d.id = u.department_id`;
 
 // Server-side posting rules (the browser check is only cosmetic)
-function canPost(role, room, departmentId) {
-    if (room === '#announcements') return role === 'Manager' || role === 'Admin';
-    if (room === '#general') return ['Manager', 'Admin', 'Supervisor'].includes(role);
+// function canPost(role, room, departmentId) {
+//     if (room === '#announcements') return role === 'Manager' || role === 'Admin';
+//     if (room === '#general') return ['Manager', 'Admin', 'Supervisor'].includes(role);
 
-    // department channel: only a Supervisor, and only in their own department
-    if (departmentId != null && room === departmentRoom(departmentId)) {
-        return role === 'Supervisor';
-    }
-    return false;
-}
+//     // department channel: only a Supervisor, and only in their own department
+//     if (departmentId != null && room === departmentRoom(departmentId)) {
+//         return role === 'Supervisor';
+//     }
+//     return false;
+// }
 
 io.on('connection', (socket) => {
     console.log(`New connection: ${socket.id}`);
@@ -546,11 +548,20 @@ function runCleanup() {
     deleteOldMessages();
 }
 
-// first run after the database has finished its setup, then on a schedule
-setTimeout(runCleanup, 5000);
-setInterval(runCleanup, CLEANUP_INTERVAL_MS);
+// Timers and the listening port start only when this file is run directly (npm start),
+// so a test can require this file without starting anything.
+function start(port = process.env.PORT || 3000) {
+    // first run after the database has finished its setup, then on a schedule
+    setTimeout(runCleanup, 5000);
+    setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-});
+    server.listen(port, '0.0.0.0', () => {
+        console.log(`Server running on port ${port}`);
+    });
+}
+
+if (require.main === module) {
+    start();
+}
+
+module.exports = { app, server, io, start, runCleanup };

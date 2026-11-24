@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const db = require('./database');
 const { hashPassword, verifyPassword, isLegacyHash, hashToken } = require('./lib/passwords');
 const { ROOMS, ROLES, departmentRoom, canPost } = require('./lib/permissions');
+const { createLoginLimiter } = require('./lib/loginLimiter');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,6 +37,13 @@ const SIGNED_IN_ROOM = 'signed-in-users';
 // function departmentRoom(departmentId) {
 //     return `#dept-${departmentId}`;
 // }
+
+// 5 failed logins for a username blocks that username for 5 minutes.
+// LOCKOUT_MS can shorten the lock for testing.
+const loginLimiter = createLoginLimiter({
+    maxFailures: 5,
+    lockMs: Number(process.env.LOCKOUT_MS) || 5 * 60 * 1000
+});
 
 // Duration of valid token (e.g. a clinic shift)
 const SESSION_HOURS = 12;
@@ -140,6 +148,17 @@ io.on('connection', (socket) => {
         // const hash = crypto.createHash('sha256').update(credentials.password).digest('hex');
         // const hash = hashPassword(credentials.password);
 
+        // A locked username gets the same generic error as a wrong password, and the
+        // password is not even checked, so the lock cannot be used to test guesses.
+        if (loginLimiter.isLocked(credentials.username)) {
+            console.warn(`[AUTH] login blocked for "${credentials.username.trim()}" (too many failures)`);
+            socket.emit('authenticated', {
+                success: false,
+                error: 'Access Denied: Invalid credentials.'
+            });
+            return;
+        }
+
         db.get(
             // The salt is stored inside password_hash, so the row is found by username
             // and the password is checked afterwards.
@@ -155,12 +174,15 @@ io.on('connection', (socket) => {
                     return;
                 }
                 if (!userRow || !verifyPassword(credentials.password, userRow.password_hash)) {
+                    loginLimiter.recordFailure(credentials.username);
                     socket.emit('authenticated', {
                         success: false,
                         error: 'Access Denied: Invalid credentials.'
                     });
                     return;
                 }
+
+                loginLimiter.reset(credentials.username);
                 
                 // an account made before salting is upgraded the first time it logs in
                 if (isLegacyHash(userRow.password_hash)) {

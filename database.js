@@ -69,12 +69,12 @@ function seedData() {
                 `INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)`,
                 [user.name, hashPassword('diamond539'), user.role]
             );
-            // only fills an empty department, so later changes by an admin are kept
+            // only fills an empty department for users whose current role needs one
             if (user.dept) {
                 db.run(
                     `UPDATE users
                      SET department_id = (SELECT id FROM departments WHERE name = ?)
-                     WHERE username = ? AND department_id IS NULL`,
+                     WHERE username = ? AND department_id IS NULL AND role IN ('Supervisor', 'Staff')`,
                     [user.dept, user.name]
                 );
             }

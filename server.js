@@ -116,6 +116,18 @@ io.on('connection', (socket) => {
         });
     }
 
+    // Refresh permissions for this account even if the user is already signed in.
+    socket.data.refreshUser = (user) => {
+        if (session.userId !== user.id) return;
+        if (session.departmentId != null && session.departmentId !== user.departmentId) {
+            socket.leave(departmentRoom(session.departmentId));
+        }
+        session.role = user.role;
+        session.departmentId = user.departmentId;
+        session.department = user.department;
+        sendAuthenticated(undefined, undefined, true);
+    };
+
     // Every channel this user may open, and whether they may post in it.
     // Used to build the sidebar AND to check join_room, so they always agree.
     function allowedChannels() {
@@ -186,8 +198,8 @@ io.on('connection', (socket) => {
                 
                 // an account made before salting is upgraded the first time it logs in
                 if (isLegacyHash(userRow.password_hash)) {
-                    db.run(`UPDATE users SET password_hash = ? WHERE id = ?`,
-                        [hashPassword(credentials.password), userRow.id]);
+                    db.run(`UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?`,
+                        [hashPassword(credentials.password), userRow.id, userRow.password_hash]);
                 }
                 // create a random token that is valid for SESSION_HOURS
                 const token = crypto.randomBytes(32).toString('hex');
@@ -481,6 +493,76 @@ io.on('connection', (socket) => {
                 return;
             }
             insertUser(dept.name);
+        });
+    });
+
+    socket.on('update_user', (data) => {
+        const action = 'update_user';
+        if (!requireAdmin(action)) return;
+
+        const fail = (error) => adminResult(action, false, { error });
+        if (!data || !Number.isSafeInteger(data.id) || data.id < 1) {
+            return fail('Choose a user to update.');
+        }
+
+        const { id, role, password } = data;
+        const hasDepartment = data.departmentId !== undefined;
+        if (role === undefined && password === undefined && !hasDepartment) {
+            return fail('Provide a role, department or password to update.');
+        }
+        if (role !== undefined && !ROLES.includes(role)) return fail('Unknown role.');
+        if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
+            return fail('Password must be at least 8 characters.');
+        }
+        if (hasDepartment && (!Number.isSafeInteger(data.departmentId) || data.departmentId < 1)) {
+            return fail('Choose a valid department.');
+        }
+
+        db.get(`SELECT role, department_id FROM users WHERE id = ?`, [id], (err, current) => {
+            if (err) {
+                console.error('Update user lookup error:', err.message);
+                return fail('Database failure.');
+            }
+            if (!current) return fail('That user does not exist.');
+
+            // Keep the same department rules as create_user.
+            const nextRole = role ?? current.role;
+            const needsDepartment = nextRole === 'Supervisor' || nextRole === 'Staff';
+            let departmentId = current.department_id;
+            if (role !== undefined || hasDepartment) {
+                if (!needsDepartment && hasDepartment) return fail('This role does not belong to a department.');
+                departmentId = needsDepartment ? (data.departmentId ?? departmentId) : null;
+                if (needsDepartment && departmentId == null) return fail('Choose a department for this role.');
+            }
+
+            // SQLite checks the department foreign key. The old values prevent overwriting
+            // a role or department that another admin changed while this request was waiting.
+            db.get(
+                `UPDATE users SET role = ?, department_id = ?, password_hash = COALESCE(?, password_hash)
+                 WHERE id = ? AND role = ? AND department_id IS ?
+                 RETURNING id, username, role, department_id AS departmentId,
+                           (SELECT name FROM departments WHERE id = users.department_id) AS department`,
+                [nextRole, departmentId, password === undefined ? null : hashPassword(password),
+                    id, current.role, current.department_id],
+                (updateErr, user) => {
+                    if (updateErr) {
+                        if (updateErr.code === 'SQLITE_CONSTRAINT' && updateErr.message.includes('FOREIGN KEY')) {
+                            return fail('That department does not exist.');
+                        }
+                        console.error('Update user error:', updateErr.message);
+                        return fail('Database failure.');
+                    }
+                    if (!user) return fail('This user changed. Please try again.');
+
+                    console.log(`[ADMIN] ${session.name} updated user ${user.username}`);
+                    adminResult(action, true, { user });
+                    if (user.role !== current.role || user.departmentId !== current.department_id) {
+                        for (const connectedSocket of io.sockets.sockets.values()) {
+                            connectedSocket.data.refreshUser(user);
+                        }
+                    }
+                }
+            );
         });
     });
 

@@ -61,7 +61,11 @@ function seedData() {
 
     db.serialize(() => {
         seedDepartments.forEach((name) => {
-            db.run(`INSERT OR IGNORE INTO departments (name) VALUES (?)`, [name]);
+            db.run(
+                `INSERT OR IGNORE INTO departments (name)
+                 SELECT ? WHERE NOT EXISTS (SELECT 1 FROM app_seed WHERE name = 'users')`,
+                [name]
+            );
         });
 
         seedUsers.forEach((user) => {
@@ -82,7 +86,7 @@ function seedData() {
             }
         });
 
-        // Remember the seed across restarts so deleted sample accounts stay deleted.
+        // Remember the seed across restarts so deleted sample users and departments stay deleted.
         db.run(`INSERT OR IGNORE INTO app_seed (name) VALUES ('users')`);
 
         console.log('Database schemas initilized and default accounts seeded.');

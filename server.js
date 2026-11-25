@@ -97,6 +97,7 @@ io.on('connection', (socket) => {
         session.authenticated = true;
         session.tokenHash = tokenHash;
         session.userId = userRow.id;
+        socket.data.userId = userRow.id;
         session.name = userRow.username;
         session.role = userRow.role;
         session.departmentId = userRow.department_id;
@@ -566,6 +567,50 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('delete_user', (data) => {
+        const action = 'delete_user';
+        if (!requireAdmin(action)) return;
+
+        const fail = (error) => adminResult(action, false, { error });
+        if (!data || !Number.isSafeInteger(data.id) || data.id < 1) {
+            return fail('Choose a user to delete.');
+        }
+
+        const { id } = data;
+        const adminId = session.userId;
+        if (id === adminId) return fail('You cannot delete your own account.');
+
+        // Check both admin roles in the delete itself. SQLite removes the user's sessions with it.
+        db.run(
+            `DELETE FROM users
+             WHERE id = ?
+               AND EXISTS (SELECT 1 FROM users WHERE id = ? AND role = 'Admin')
+               AND (role IS NOT 'Admin' OR EXISTS (SELECT 1 FROM users WHERE id <> ? AND role = 'Admin'))`,
+            [id, adminId, id],
+            function (err) {
+                if (err) {
+                    console.error('Delete user error:', err.message);
+                    return fail('Database failure.');
+                }
+                if (!this.changes) return fail('User not found or deletion is not allowed. The last admin cannot be deleted.');
+
+                for (const connectedSocket of io.sockets.sockets.values()) {
+                    if (connectedSocket.data.userId !== id) continue;
+                    connectedSocket.emit('authenticated', {
+                        success: false,
+                        resume: true,
+                        error: 'Your account was deleted.'
+                    });
+                    // Close the transport so the browser can reconnect at the login screen.
+                    connectedSocket.conn.close();
+                }
+
+                console.log(`[ADMIN] ${session.name} deleted user ${id}`);
+                adminResult(action, true, { user: { id } });
+            }
+        );
+    });
+
     socket.on('join_room', (room) => {
         if (!session.authenticated) return;
 
@@ -681,6 +726,7 @@ io.on('connection', (socket) => {
         session.authenticated = false;
         session.tokenHash = null;
         session.userId = null;
+        socket.data.userId = null;
         session.name = null;
         session.role = null;
         session.departmentId = null;

@@ -66,7 +66,8 @@ function seedData() {
 
         seedUsers.forEach((user) => {
             db.run(
-                `INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)`,
+                `INSERT OR IGNORE INTO users (username, password_hash, role)
+                 SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM app_seed WHERE name = 'users')`,
                 [user.name, hashPassword('diamond539'), user.role]
             );
             // only fills an empty department for users whose current role needs one
@@ -74,11 +75,15 @@ function seedData() {
                 db.run(
                     `UPDATE users
                      SET department_id = (SELECT id FROM departments WHERE name = ?)
-                     WHERE username = ? AND department_id IS NULL AND role IN ('Supervisor', 'Staff')`,
+                     WHERE username = ? AND department_id IS NULL AND role IN ('Supervisor', 'Staff')
+                       AND NOT EXISTS (SELECT 1 FROM app_seed WHERE name = 'users')`,
                     [user.dept, user.name]
                 );
             }
         });
+
+        // Remember the seed across restarts so deleted sample accounts stay deleted.
+        db.run(`INSERT OR IGNORE INTO app_seed (name) VALUES ('users')`);
 
         console.log('Database schemas initilized and default accounts seeded.');
 
@@ -148,6 +153,7 @@ function initializeAndSeedDatabase() {
             expires_at TEXT NOT NULL
             )`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`);
+        db.run(`CREATE TABLE IF NOT EXISTS app_seed (name TEXT PRIMARY KEY)`);
 
         // add users.department_id (existing databases), then seed the data
         addColumnIfMissing('users', 'department_id', 'INTEGER REFERENCES departments(id)', seedData);

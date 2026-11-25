@@ -9,6 +9,7 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/usr/src/app/data
+      - ./certs:/usr/src/app/certs:ro
     environment:
       - NODE_ENV=production
       - PORT=3000

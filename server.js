@@ -7,7 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('./database');
 const { hashPassword, verifyPassword, isLegacyHash, hashToken } = require('./lib/passwords');
-const { ROOMS, ROLES, departmentRoom, canPost } = require('./lib/permissions');
+const { ROOMS, ROLES, departmentRoom, canAccessAllDepartments, canPost } = require('./lib/permissions');
 const { createLoginLimiter } = require('./lib/loginLimiter');
 
 const app = express();
@@ -66,18 +66,7 @@ const RETENTION_HOURS = 72;
 // Query a user with their department. Login handler also uses this string
 const USER_SELECT = `SELECT u.id, u.username, u.password_hash, u.role, u.department_id, d.name AS department
                      FROM users u LEFT JOIN departments d ON d.id = u.department_id`;
-
-// Server-side posting rules (the browser check is only cosmetic)
-// function canPost(role, room, departmentId) {
-//     if (room === '#announcements') return role === 'Manager' || role === 'Admin';
-//     if (room === '#general') return ['Manager', 'Admin', 'Supervisor'].includes(role);
-
-//     // department channel: only a Supervisor, and only in their own department
-//     if (departmentId != null && room === departmentRoom(departmentId)) {
-//         return role === 'Supervisor';
-//     }
-//     return false;
-// }
+const DEPARTMENTS_SELECT = `SELECT id, name FROM departments ORDER BY name`;
 
 io.on('connection', (socket) => {
     console.log(`New connection: ${socket.id}`);
@@ -91,8 +80,19 @@ io.on('connection', (socket) => {
         departmentId: null,
         department: null
     };
+    let permissionsVersion = 0;
+    const pendingJoins = new Map();
+
+    function leaveDisallowedRooms() {
+        for (const room of socket.rooms) {
+            if (room === socket.id || room === SIGNED_IN_ROOM || ROOMS.includes(room)) continue;
+            if (canAccessAllDepartments(session.role) || room === departmentRoom(session.departmentId)) continue;
+            socket.leave(room);
+        }
+    }
 
     function startSession(userRow, tokenHash) {
+        permissionsVersion++;
         socket.join(SIGNED_IN_ROOM);
         session.authenticated = true;
         session.tokenHash = tokenHash;
@@ -102,15 +102,25 @@ io.on('connection', (socket) => {
         session.role = userRow.role;
         session.departmentId = userRow.department_id;
         session.department = userRow.department;
+        leaveDisallowedRooms();
     }
 
-    function sendAuthenticated(token, expiresAt, resumed = false) {
+    async function sendAuthenticated(token, expiresAt, resumed = false) {
+        const version = permissionsVersion;
+        const tokenHash = session.tokenHash;
+        const channels = await allowedChannels();
+        if (!socket.connected || tokenHash !== session.tokenHash) return;
+        if (version !== permissionsVersion) {
+            // A role change during login still needs to return the login token.
+            if (token) return sendAuthenticated(token, expiresAt, resumed);
+            return;
+        }
         socket.emit('authenticated', {
             success: true,
             name: session.name,
             role: session.role,
             department: session.department,
-            channels: allowedChannels(), 
+            channels,
             token,
             expiresAt,
             resumed
@@ -120,30 +130,40 @@ io.on('connection', (socket) => {
     // Refresh permissions for this account even if the user is already signed in.
     socket.data.refreshUser = (user) => {
         if (session.userId !== user.id) return;
-        if (session.departmentId != null && session.departmentId !== user.departmentId) {
-            socket.leave(departmentRoom(session.departmentId));
-        }
+        permissionsVersion++;
         session.role = user.role;
         session.departmentId = user.departmentId;
         session.department = user.department;
+        leaveDisallowedRooms();
         sendAuthenticated(undefined, undefined, true);
     };
 
     // Every channel this user may open, and whether they may post in it.
     // Used to build the sidebar AND to check join_room, so they always agree.
-    function allowedChannels() {
+    async function allowedChannels() {
+        const { role, departmentId, department } = session;
         const channels = ROOMS.map((room) => ({
             room,
             label: room,
-            canPost: canPost(session.role, room, session.departmentId)
+            canPost: canPost(role, room, departmentId)
         }));
 
-        if (session.departmentId != null) {
-            const room = departmentRoom(session.departmentId);
+        let departments = departmentId != null && department ? [{ id: departmentId, name: department }] : [];
+        if (canAccessAllDepartments(role)) {
+            departments = await new Promise((resolve) => {
+                db.all(DEPARTMENTS_SELECT, [], (err, rows) => {
+                    if (err) console.error('List channel departments error:', err.message);
+                    resolve(rows || []);
+                });
+            });
+        }
+
+        for (const { id, name } of departments) {
+            const room = departmentRoom(id);
             channels.push({
                 room,
-                label: `#${session.department}`,
-                canPost: canPost(session.role, room, session.departmentId)
+                label: `#${name}`,
+                canPost: canPost(role, room, departmentId)
             });
         }
         return channels;
@@ -323,7 +343,7 @@ io.on('connection', (socket) => {
             return adminResult('list_departments', false, { error: 'Listing departments does not take any input.' });
         }
 
-        db.all(`SELECT id, name FROM departments ORDER BY name`, [], (err, rows) => {
+        db.all(DEPARTMENTS_SELECT, [], (err, rows) => {
             if (err) {
                 console.error('List departments error:', err.message);
                 adminResult('list_departments', false, { error: 'Database failure.' });
@@ -437,6 +457,8 @@ io.on('connection', (socket) => {
                 return;
             }
             console.log(`[ADMIN] ${session.name} deleted department ${id}`);
+            const room = departmentRoom(id);
+            io.in(room).socketsLeave(room);
             adminResult(action, true, { department: { id } });
         });
     });
@@ -631,11 +653,25 @@ io.on('connection', (socket) => {
         );
     });
 
-    socket.on('join_room', (room) => {
+    socket.on('join_room', async (room) => {
         if (!session.authenticated) return;
 
+        if (typeof room !== 'string') {
+            socket.emit('security_alert', 'You do not have access to that channel.');
+            return;
+        }
+
+        // Leaving or rejoining can overtake the database lookup.
+        const version = permissionsVersion;
+        const request = Symbol();
+        pendingJoins.set(room, request);
+        const channels = await allowedChannels();
+        if (pendingJoins.get(room) !== request) return;
+        pendingJoins.delete(room);
+        if (version !== permissionsVersion || !socket.connected) return;
+
         // same answer for "other department" and "does not exist", so nothing leaks
-        if (typeof room !== 'string' || !allowedChannels().some((c) => c.room === room)) {
+        if (!channels.some((c) => c.room === room)) {
             socket.emit('security_alert', 'You do not have access to that channel.');
             return;
         }
@@ -653,6 +689,7 @@ io.on('connection', (socket) => {
              ORDER BY id ASC`,
             [room, cutoff],
             (err, rows) => {
+                if (version !== permissionsVersion || !socket.rooms.has(room)) return;
                 if (err) {
                     console.error('History error:', err.message);
                     return;
@@ -663,10 +700,11 @@ io.on('connection', (socket) => {
     });
 
     socket.on('leave_room', (room) => {
+        pendingJoins.delete(room);
         socket.leave(room);
     });
 
-    socket.on('chat_message', (data) => {
+    socket.on('chat_message', async (data) => {
         if (!session.authenticated || !data) return;
 
         const {
@@ -674,9 +712,11 @@ io.on('connection', (socket) => {
         } = data;
         const text = typeof data.text === 'string' ? data.text.trim().slice(0, 1000) : '';
 
-        // the room must be one of this user's own channels (#general, #announcements,
-        // or their own department), the same list that join_room checks
-        const channel = allowedChannels().find((c) => c.room === room);
+        // Posting and joining use the same channel list as the sidebar.
+        const version = permissionsVersion;
+        const channels = await allowedChannels();
+        if (version !== permissionsVersion || !socket.connected) return;
+        const channel = channels.find((c) => c.room === room);
         if (!channel) {
             socket.emit('security_alert', 'You do not have access to that channel.');
             return;
@@ -702,17 +742,6 @@ io.on('connection', (socket) => {
                     console.error('Insert error:', err.message);
                     return;
                 }
-                // only sockets that joined this room receive it, and join_room only
-                // lets a department's own members in
-                // io.to(room).emit('chat_message', {
-                //     id: this.lastID,
-                //     room,
-                //     user: author,
-                //     role: authorRole,
-                //     encrypted_text: text,
-                //     timestamp
-                // });
-
                 const saved = {
                     id: this.lastID,
                     room,
@@ -733,6 +762,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('logout', () => {
+        permissionsVersion++;
         // end the saved login too, otherwise a refresh would sign the user back in
         if (session.tokenHash) {
             db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash]);

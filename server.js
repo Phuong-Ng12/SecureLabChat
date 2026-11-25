@@ -299,8 +299,29 @@ io.on('connection', (socket) => {
         return false;
     }
 
-    socket.on('list_departments', () => {
+    function isAdminPayload(data) {
+        return !!data && Object.getPrototypeOf(data) === Object.prototype;
+    }
+
+    function isValidId(id) {
+        return Number.isSafeInteger(id) && id > 0;
+    }
+
+    function passwordError(password) {
+        if (typeof password !== 'string') return 'Password must be text.';
+        if (password.length < 8) return 'Password must be at least 8 characters.';
+    }
+
+    function roleError(role) {
+        if (typeof role !== 'string') return 'Role must be text.';
+        if (!ROLES.includes(role)) return 'Unknown role. Choose Admin, Manager, Supervisor or Staff.';
+    }
+
+    socket.on('list_departments', (data) => {
         if (!requireAdmin('list_departments')) return;
+        if (data !== undefined) {
+            return adminResult('list_departments', false, { error: 'Listing departments does not take any input.' });
+        }
 
         db.all(`SELECT id, name FROM departments ORDER BY name`, [], (err, rows) => {
             if (err) {
@@ -314,14 +335,22 @@ io.on('connection', (socket) => {
 
     // Apply the same name rules when creating or renaming a department.
     function readDepartmentName(action, data) {
-        const name = data && typeof data.name === 'string' ? data.name.trim() : '';
+        if (typeof data.name !== 'string') {
+            adminResult(action, false, { error: 'Department name must be text.' });
+            return null;
+        }
+        const name = data.name.trim();
         if (!name) {
             adminResult(action, false, { error: 'Department name is required.' });
             return null;
         }
-        if (name.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9 \-]*$/.test(name)) {
+        if (name.length > 40) {
+            adminResult(action, false, { error: 'Department name must be 1 to 40 characters.' });
+            return null;
+        }
+        if (!/^[A-Za-z0-9][A-Za-z0-9 \-]*$/.test(name)) {
             adminResult(action, false, {
-                error: 'Use up to 40 letters, numbers, spaces or hyphens.'
+                error: 'Start the department name with a letter or number. Use only letters, numbers, spaces or hyphens.'
             });
             return null;
         }
@@ -330,6 +359,9 @@ io.on('connection', (socket) => {
 
     socket.on('create_department', (data) => {
         if (!requireAdmin('create_department')) return;
+        if (!isAdminPayload(data)) {
+            return adminResult('create_department', false, { error: 'Provide a department name in an object.' });
+        }
 
         const name = readDepartmentName('create_department', data);
         if (!name) return;
@@ -353,11 +385,11 @@ io.on('connection', (socket) => {
         const action = 'update_department';
         if (!requireAdmin(action)) return;
 
-        const id = data?.id;
-        if (!Number.isSafeInteger(id) || id < 1) {
+        if (!isAdminPayload(data) || !isValidId(data.id)) {
             adminResult(action, false, { error: 'Choose a valid department.' });
             return;
         }
+        const { id } = data;
         const name = readDepartmentName(action, data);
         if (!name) return;
 
@@ -384,11 +416,11 @@ io.on('connection', (socket) => {
         const action = 'delete_department';
         if (!requireAdmin(action)) return;
 
-        const id = data?.id;
-        if (!Number.isSafeInteger(id) || id < 1) {
+        if (!isAdminPayload(data) || !isValidId(data.id)) {
             adminResult(action, false, { error: 'Choose a valid department.' });
             return;
         }
+        const { id } = data;
 
         // SQLite checks users.department_id during the delete, so a department with users stays in place.
         db.run(`DELETE FROM departments WHERE id = ?`, [id], function (err) {
@@ -414,36 +446,22 @@ io.on('connection', (socket) => {
 
         const fail = (error) => adminResult('create_user', false, { error });
 
-        if (!data || typeof data.username !== 'string' || typeof data.password !== 'string' ||
-            typeof data.role !== 'string') {
-            fail('Username, password and role are required.');
-            return;
-        }
+        if (!isAdminPayload(data)) return fail('Provide user details in an object.');
+        if (typeof data.username !== 'string') return fail('Username must be text.');
 
         const username = data.username.trim();
         const { password, role } = data;
 
-        if (!username || username.length > 50) {
-            fail('Username must be 1 to 50 characters.');
-            return;
-        }
-        if (password.length < 8) {
-            fail('Password must be at least 8 characters.');
-            return;
-        }
-        if (!ROLES.includes(role)) {
-            fail('Unknown role.');
-            return;
-        }
+        if (username.length < 3 || username.length > 30) return fail('Username must be 3 to 30 characters.');
+        const textError = passwordError(password) || roleError(role);
+        if (textError) return fail(textError);
 
         // Supervisors and Staff belong to a department. Admin and Manager are company-wide.
         const needsDepartment = role === 'Supervisor' || role === 'Staff';
-        const departmentId = needsDepartment ? Number(data.departmentId) : null;
+        const departmentId = data.departmentId ?? null;
 
-        if (needsDepartment && !Number.isInteger(departmentId)) {
-            fail('Choose a department for this role.');
-            return;
-        }
+        if (needsDepartment && !isValidId(departmentId)) return fail('Choose a valid department for this role.');
+        if (!needsDepartment && departmentId !== null) return fail('This role does not belong to a department.');
 
         const insertUser = (departmentName) => {
             // usernames are compared without case so "staff" cannot shadow "Staff"
@@ -463,6 +481,9 @@ io.on('connection', (socket) => {
                     [username, hashPassword(password), role, departmentId],
                     function (insertErr) {
                         if (insertErr) {
+                            if (insertErr.code === 'SQLITE_CONSTRAINT' && insertErr.message.includes('FOREIGN KEY')) {
+                                return fail('That department does not exist.');
+                            }
                             const duplicate = insertErr.code === 'SQLITE_CONSTRAINT';
                             if (!duplicate) console.error('Create user error:', insertErr.message);
                             fail(duplicate ? 'That username is already taken.' : 'Database failure.');
@@ -502,7 +523,7 @@ io.on('connection', (socket) => {
         if (!requireAdmin(action)) return;
 
         const fail = (error) => adminResult(action, false, { error });
-        if (!data || !Number.isSafeInteger(data.id) || data.id < 1) {
+        if (!isAdminPayload(data) || !isValidId(data.id)) {
             return fail('Choose a user to update.');
         }
 
@@ -511,11 +532,10 @@ io.on('connection', (socket) => {
         if (role === undefined && password === undefined && !hasDepartment) {
             return fail('Provide a role, department or password to update.');
         }
-        if (role !== undefined && !ROLES.includes(role)) return fail('Unknown role.');
-        if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
-            return fail('Password must be at least 8 characters.');
-        }
-        if (hasDepartment && (!Number.isSafeInteger(data.departmentId) || data.departmentId < 1)) {
+        const textError = (role !== undefined && roleError(role)) ||
+            (password !== undefined && passwordError(password));
+        if (textError) return fail(textError);
+        if (hasDepartment && !isValidId(data.departmentId)) {
             return fail('Choose a valid department.');
         }
 
@@ -572,7 +592,7 @@ io.on('connection', (socket) => {
         if (!requireAdmin(action)) return;
 
         const fail = (error) => adminResult(action, false, { error });
-        if (!data || !Number.isSafeInteger(data.id) || data.id < 1) {
+        if (!isAdminPayload(data) || !isValidId(data.id)) {
             return fail('Choose a user to delete.');
         }
 

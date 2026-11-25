@@ -378,8 +378,9 @@ createApp({
             };
 
             // the server checks all of this again, these messages just save a round trip
-            if (!username) return fail('Enter a username.');
-            if (username.length > 50) return fail('Username must be 50 characters or fewer.');
+            if (username.length < 3 || username.length > 30) {
+                return fail('Username must be 3 to 30 characters.');
+            }
             if (form.password.length < 8) return fail('Password must be at least 8 characters.');
             if (roleNeedsDepartment.value && form.departmentId === '') {
                 return fail('Choose a department for this role.');

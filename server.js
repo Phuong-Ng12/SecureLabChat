@@ -299,20 +299,27 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Apply the same name rules when creating or renaming a department.
+    function readDepartmentName(action, data) {
+        const name = data && typeof data.name === 'string' ? data.name.trim() : '';
+        if (!name) {
+            adminResult(action, false, { error: 'Department name is required.' });
+            return null;
+        }
+        if (name.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9 \-]*$/.test(name)) {
+            adminResult(action, false, {
+                error: 'Use up to 40 letters, numbers, spaces or hyphens.'
+            });
+            return null;
+        }
+        return name;
+    }
+
     socket.on('create_department', (data) => {
         if (!requireAdmin('create_department')) return;
 
-        const name = data && typeof data.name === 'string' ? data.name.trim() : '';
-        if (!name) {
-            adminResult('create_department', false, { error: 'Department name is required.' });
-            return;
-        }
-        if (name.length > 40 || !/^[A-Za-z0-9][A-Za-z0-9 \-]*$/.test(name)) {
-            adminResult('create_department', false, {
-                error: 'Use up to 40 letters, numbers, spaces or hyphens.'
-            });
-            return;
-        }
+        const name = readDepartmentName('create_department', data);
+        if (!name) return;
 
         // departments.name is UNIQUE and case-insensitive, so a duplicate fails here
         db.run(`INSERT INTO departments (name) VALUES (?)`, [name], function (err) {
@@ -326,6 +333,66 @@ io.on('connection', (socket) => {
             }
             console.log(`[ADMIN] ${session.name} created department ${name}`);
             adminResult('create_department', true, { department: { id: this.lastID, name } });
+        });
+    });
+
+    socket.on('update_department', (data) => {
+        const action = 'update_department';
+        if (!requireAdmin(action)) return;
+
+        const id = data?.id;
+        if (!Number.isSafeInteger(id) || id < 1) {
+            adminResult(action, false, { error: 'Choose a valid department.' });
+            return;
+        }
+        const name = readDepartmentName(action, data);
+        if (!name) return;
+
+        // The room uses the department ID, so renaming keeps its users and chat history.
+        db.run(`UPDATE departments SET name = ? WHERE id = ?`, [name, id], function (err) {
+            if (err) {
+                const duplicate = err.code === 'SQLITE_CONSTRAINT';
+                if (!duplicate) console.error('Update department error:', err.message);
+                adminResult(action, false, {
+                    error: duplicate ? 'That department already exists.' : 'Database failure.'
+                });
+                return;
+            }
+            if (!this.changes) {
+                adminResult(action, false, { error: 'That department does not exist.' });
+                return;
+            }
+            console.log(`[ADMIN] ${session.name} renamed department ${id} to ${name}`);
+            adminResult(action, true, { department: { id, name } });
+        });
+    });
+
+    socket.on('delete_department', (data) => {
+        const action = 'delete_department';
+        if (!requireAdmin(action)) return;
+
+        const id = data?.id;
+        if (!Number.isSafeInteger(id) || id < 1) {
+            adminResult(action, false, { error: 'Choose a valid department.' });
+            return;
+        }
+
+        // SQLite checks users.department_id during the delete, so a department with users stays in place.
+        db.run(`DELETE FROM departments WHERE id = ?`, [id], function (err) {
+            if (err) {
+                const hasUsers = err.code === 'SQLITE_CONSTRAINT' && err.message.includes('FOREIGN KEY');
+                if (!hasUsers) console.error('Delete department error:', err.message);
+                adminResult(action, false, {
+                    error: hasUsers ? 'Move users to another department before deleting this one.' : 'Database failure.'
+                });
+                return;
+            }
+            if (!this.changes) {
+                adminResult(action, false, { error: 'That department does not exist.' });
+                return;
+            }
+            console.log(`[ADMIN] ${session.name} deleted department ${id}`);
+            adminResult(action, true, { department: { id } });
         });
     });
 

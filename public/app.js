@@ -95,6 +95,21 @@ createApp({
         );
         const originalTitle = document.title;
 
+        // Server problem notice (database error)
+        const serverError = ref('');
+        let serverErrorTimer = null;
+
+        function dismissServerError() {
+            serverError.value = '';
+            clearTimeout(serverErrorTimer);
+        }
+
+        function showServerError(message) {
+            serverError.value = message;
+            clearTimeout(serverErrorTimer);
+            serverErrorTimer = setTimeout(dismissServerError, 8000);
+        }
+
         const isSilent = computed(() => notifyMode.value === 'silent');
 
         function toggleNotifyMode() {
@@ -301,7 +316,15 @@ createApp({
             alert(msg);
         });
 
-                // One listener for the answers to every admin action
+        // The login form and the admin dashboard already show the error from their own
+        // reply, so this notice is only for the chat screen (sending a message, history).
+        socket.on('server_error', (msg) => {
+            if (!isAuthenticated.value || showAdmin.value) return;
+            showServerError(typeof msg === 'string' && msg ? msg : 'Something went wrong. Please try again.');
+        });
+
+        
+        // One listener for the answers to every admin action
         socket.on('admin_result', (result) => {
             if (result.action === 'list_departments') {
                 departmentsLoading.value = false;
@@ -488,6 +511,7 @@ createApp({
             channels.value = [];
             notifyMode.value = 'banner';
             announcementBanner.value = null;
+            dismissServerError();
             document.title = originalTitle;
             
             // nothing from the admin pages stays in memory for the next user
@@ -553,6 +577,8 @@ createApp({
             isSilent,
             toggleNotifyMode,
             announcementBanner,
+            serverError,
+            dismissServerError,
             dismissBanner,
             openAnnouncementsFromBanner,
             canAskDesktopPermission,

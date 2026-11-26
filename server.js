@@ -14,6 +14,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+app.get('/health', (req, res) => {
+    // Read the app's tables so an open but uninitialized database fails the check.
+    db.get(`SELECT EXISTS(SELECT 1 FROM users), EXISTS(SELECT 1 FROM departments),
+                   EXISTS(SELECT 1 FROM sessions), EXISTS(SELECT 1 FROM messages)`, [], (err) => {
+        if (err) return res.status(503).json({ status: 'unhealthy' });
+        res.json({ status: 'healthy' });
+    });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
@@ -31,6 +40,15 @@ app.get('/admin', (req, res) => {
 // Every logged-in socket joins this room, so a new announcement can reach people who
 // are reading another channel. It is not a channel and never shown to users.
 const SIGNED_IN_ROOM = 'signed-in-users';
+
+// Keep database details in the server logs and only send a short message to clients.
+function databaseError(target, operation, err, message = 'Database failure. Please try again.') {
+    if (err.code !== 'SQLITE_CONSTRAINT') {
+        console.error(`${operation}:`, err.message);
+        target.emit('server_error', message);
+    }
+    return message;
+}
 
 // A department channel has primary key which is the department id, so two similar names can
 // never clash. The visible name comes from the departments table.
@@ -152,7 +170,7 @@ io.on('connection', (socket) => {
         if (canAccessAllDepartments(role)) {
             departments = await new Promise((resolve) => {
                 db.all(DEPARTMENTS_SELECT, [], (err, rows) => {
-                    if (err) console.error('List channel departments error:', err.message);
+                    if (err) databaseError(socket, 'List channel departments error', err, 'Could not load department channels.');
                     resolve(rows || []);
                 });
             });
@@ -199,10 +217,9 @@ io.on('connection', (socket) => {
             [credentials.username.trim()],
             (err, userRow) => {
                 if (err) {
-                    console.error('SQL Auth Error:', err.message);
                     socket.emit('authenticated', {
                         success: false,
-                        error: 'Database verification failure.'
+                        error: databaseError(socket, 'SQL auth error', err, 'Could not verify your login. Please try again.')
                     });
                     return;
                 }
@@ -220,7 +237,9 @@ io.on('connection', (socket) => {
                 // an account made before salting is upgraded the first time it logs in
                 if (isLegacyHash(userRow.password_hash)) {
                     db.run(`UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?`,
-                        [hashPassword(credentials.password), userRow.id, userRow.password_hash]);
+                        [hashPassword(credentials.password), userRow.id, userRow.password_hash], (err) => {
+                            if (err) databaseError(socket, 'Password hash upgrade error', err, 'Could not upgrade your saved password.');
+                        });
                 }
                 // create a random token that is valid for SESSION_HOURS
                 const token = crypto.randomBytes(32).toString('hex');
@@ -232,10 +251,9 @@ io.on('connection', (socket) => {
                     [hashToken(token), userRow.id, now.toISOString(), expiresAt],
                     (insertErr) => {
                         if (insertErr) {
-                            console.error('Session insert error:', insertErr.message);
                             socket.emit('authenticated', {
                                 success: false,
-                                error: 'Could not start a session.'
+                                error: databaseError(socket, 'Session insert error', insertErr, 'Could not start a session.')
                             });
                             return;
                         }
@@ -278,8 +296,7 @@ io.on('connection', (socket) => {
             [tokenHash],
             (err, row) => {
                 if (err) {
-                    console.error('Resume error:', err.message);
-                    reject('Database verification failure.');
+                    reject(databaseError(socket, 'Resume error', err, 'Could not verify your saved session. Please try again.'));
                     return;
                 }
                 if (!row) {
@@ -287,7 +304,9 @@ io.on('connection', (socket) => {
                     return;
                 }
                 if (new Date(row.expires_at) <= new Date()) {
-                    db.run(`DELETE FROM sessions WHERE token_hash = ?`, [tokenHash]);
+                    db.run(`DELETE FROM sessions WHERE token_hash = ?`, [tokenHash], (err) => {
+                        if (err) databaseError(socket, 'Expired session delete error', err, 'Could not clear the expired session.');
+                    });
                     reject('Session expired. Please log in again.');
                     return;
                 }
@@ -345,8 +364,7 @@ io.on('connection', (socket) => {
 
         db.all(DEPARTMENTS_SELECT, [], (err, rows) => {
             if (err) {
-                console.error('List departments error:', err.message);
-                adminResult('list_departments', false, { error: 'Database failure.' });
+                adminResult('list_departments', false, { error: databaseError(socket, 'List departments error', err) });
                 return;
             }
             adminResult('list_departments', true, { departments: rows });
@@ -390,9 +408,9 @@ io.on('connection', (socket) => {
         db.run(`INSERT INTO departments (name) VALUES (?)`, [name], function (err) {
             if (err) {
                 const duplicate = err.code === 'SQLITE_CONSTRAINT';
-                if (!duplicate) console.error('Create department error:', err.message);
                 adminResult('create_department', false, {
-                    error: duplicate ? 'That department already exists.' : 'Database failure.'
+                    error: databaseError(socket, 'Create department error', err,
+                        duplicate ? 'That department already exists.' : undefined)
                 });
                 return;
             }
@@ -417,9 +435,9 @@ io.on('connection', (socket) => {
         db.run(`UPDATE departments SET name = ? WHERE id = ?`, [name, id], function (err) {
             if (err) {
                 const duplicate = err.code === 'SQLITE_CONSTRAINT';
-                if (!duplicate) console.error('Update department error:', err.message);
                 adminResult(action, false, {
-                    error: duplicate ? 'That department already exists.' : 'Database failure.'
+                    error: databaseError(socket, 'Update department error', err,
+                        duplicate ? 'That department already exists.' : undefined)
                 });
                 return;
             }
@@ -446,9 +464,9 @@ io.on('connection', (socket) => {
         db.run(`DELETE FROM departments WHERE id = ?`, [id], function (err) {
             if (err) {
                 const hasUsers = err.code === 'SQLITE_CONSTRAINT' && err.message.includes('FOREIGN KEY');
-                if (!hasUsers) console.error('Delete department error:', err.message);
                 adminResult(action, false, {
-                    error: hasUsers ? 'Move users to another department before deleting this one.' : 'Database failure.'
+                    error: databaseError(socket, 'Delete department error', err,
+                        hasUsers ? 'Move users to another department before deleting this one.' : undefined)
                 });
                 return;
             }
@@ -489,8 +507,7 @@ io.on('connection', (socket) => {
             // usernames are compared without case so "staff" cannot shadow "Staff"
             db.get(`SELECT id FROM users WHERE username = ? COLLATE NOCASE`, [username], (err, existing) => {
                 if (err) {
-                    console.error('Create user lookup error:', err.message);
-                    fail('Database failure.');
+                    fail(databaseError(socket, 'Create user lookup error', err));
                     return;
                 }
                 if (existing) {
@@ -504,11 +521,11 @@ io.on('connection', (socket) => {
                     function (insertErr) {
                         if (insertErr) {
                             if (insertErr.code === 'SQLITE_CONSTRAINT' && insertErr.message.includes('FOREIGN KEY')) {
-                                return fail('That department does not exist.');
+                                return fail(databaseError(socket, 'Create user error', insertErr, 'That department does not exist.'));
                             }
                             const duplicate = insertErr.code === 'SQLITE_CONSTRAINT';
-                            if (!duplicate) console.error('Create user error:', insertErr.message);
-                            fail(duplicate ? 'That username is already taken.' : 'Database failure.');
+                            fail(databaseError(socket, 'Create user error', insertErr,
+                                duplicate ? 'That username is already taken.' : undefined));
                             return;
                         }
                         console.log(`[ADMIN] ${session.name} created user ${username} (${role})`);
@@ -528,8 +545,7 @@ io.on('connection', (socket) => {
 
         db.get(`SELECT name FROM departments WHERE id = ?`, [departmentId], (err, dept) => {
             if (err) {
-                console.error('Create user department error:', err.message);
-                fail('Database failure.');
+                fail(databaseError(socket, 'Create user department error', err));
                 return;
             }
             if (!dept) {
@@ -563,8 +579,7 @@ io.on('connection', (socket) => {
 
         db.get(`SELECT role, department_id FROM users WHERE id = ?`, [id], (err, current) => {
             if (err) {
-                console.error('Update user lookup error:', err.message);
-                return fail('Database failure.');
+                return fail(databaseError(socket, 'Update user lookup error', err));
             }
             if (!current) return fail('That user does not exist.');
 
@@ -590,10 +605,9 @@ io.on('connection', (socket) => {
                 (updateErr, user) => {
                     if (updateErr) {
                         if (updateErr.code === 'SQLITE_CONSTRAINT' && updateErr.message.includes('FOREIGN KEY')) {
-                            return fail('That department does not exist.');
+                            return fail(databaseError(socket, 'Update user error', updateErr, 'That department does not exist.'));
                         }
-                        console.error('Update user error:', updateErr.message);
-                        return fail('Database failure.');
+                        return fail(databaseError(socket, 'Update user error', updateErr));
                     }
                     if (!user) return fail('This user changed. Please try again.');
 
@@ -631,8 +645,7 @@ io.on('connection', (socket) => {
             [id, adminId, id],
             function (err) {
                 if (err) {
-                    console.error('Delete user error:', err.message);
-                    return fail('Database failure.');
+                    return fail(databaseError(socket, 'Delete user error', err));
                 }
                 if (!this.changes) return fail('User not found or deletion is not allowed. The last admin cannot be deleted.');
 
@@ -689,11 +702,11 @@ io.on('connection', (socket) => {
              ORDER BY id ASC`,
             [room, cutoff],
             (err, rows) => {
-                if (version !== permissionsVersion || !socket.rooms.has(room)) return;
                 if (err) {
-                    console.error('History error:', err.message);
+                    databaseError(socket, 'History error', err, 'Could not load messages. Please try again.');
                     return;
                 }
+                if (version !== permissionsVersion || !socket.rooms.has(room)) return;
                 socket.emit('load_history', rows || []);
             }
         );
@@ -739,7 +752,7 @@ io.on('connection', (socket) => {
             [room, author, authorRole, text, timestamp],
             function (err) {
                 if (err) {
-                    console.error('Insert error:', err.message);
+                    databaseError(socket, 'Message insert error', err, 'Could not send your message. Please try again.');
                     return;
                 }
                 const saved = {
@@ -765,7 +778,9 @@ io.on('connection', (socket) => {
         permissionsVersion++;
         // end the saved login too, otherwise a refresh would sign the user back in
         if (session.tokenHash) {
-            db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash]);
+            db.run(`DELETE FROM sessions WHERE token_hash = ?`, [session.tokenHash], (err) => {
+                if (err) databaseError(socket, 'Logout error', err, 'Could not clear your saved session.');
+            });
         }
         
         // leave every room (general, announcements and the department room)

@@ -156,6 +156,17 @@ io.on('connection', (socket) => {
         sendAuthenticated(undefined, undefined, true);
     };
 
+    // The room ID stays the same, so only its displayed name needs to change.
+    socket.data.renameDepartment = ({ id, name }) => {
+        if (!session.authenticated) return;
+        if (session.departmentId === id) {
+            session.department = name;
+        } else if (!canAccessAllDepartments(session.role)) {
+            return;
+        }
+        socket.emit('department_renamed', { room: departmentRoom(id), label: `#${name}` });
+    };
+
     // Every channel this user may open, and whether they may post in it.
     // Used to build the sidebar AND to check join_room, so they always agree.
     async function allowedChannels() {
@@ -446,7 +457,11 @@ io.on('connection', (socket) => {
                 return;
             }
             console.log(`[ADMIN] ${session.name} renamed department ${id} to ${name}`);
-            adminResult(action, true, { department: { id, name } });
+            const department = { id, name };
+            for (const connectedSocket of io.sockets.sockets.values()) {
+                connectedSocket.data.renameDepartment(department);
+            }
+            adminResult(action, true, { department });
         });
     });
 

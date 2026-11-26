@@ -43,8 +43,10 @@ const SIGNED_IN_ROOM = 'signed-in-users';
 
 // Keep database details in the server logs and only send a short message to clients.
 function databaseError(target, operation, err, message = 'Database failure. Please try again.') {
-    if (err.code !== 'SQLITE_CONSTRAINT') console.error(`${operation}:`, err.message);
-    target.emit('server_error', message);
+    if (err.code !== 'SQLITE_CONSTRAINT') {
+        console.error(`${operation}:`, err.message);
+        target.emit('server_error', message);
+    }
     return message;
 }
 
@@ -809,7 +811,7 @@ const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS) || 10 * 60 *
 function deleteExpiredSessions() {
     db.run(`DELETE FROM sessions WHERE expires_at <= ?`, [new Date().toISOString()], function (err) {
         if (err) {
-            databaseError(io.to(SIGNED_IN_ROOM), 'Session cleanup error', err, 'Could not clean up expired sessions.');
+            console.error('Session cleanup error:', err.message);
         } else if (this.changes > 0) {
             console.log(`Session cleanup: removed ${this.changes} expired token(s).`);
         }
@@ -823,7 +825,7 @@ function deleteOldMessages() {
 
     db.run(`DELETE FROM messages WHERE timestamp < ?`, [cutoff], function (err) {
         if (err) {
-            databaseError(io.to(SIGNED_IN_ROOM), 'Message cleanup error', err, 'Could not clean up old messages.');
+            console.error('Message cleanup error:', err.message);
         } else if (this.changes > 0) {
             console.log(`Message cleanup: removed ${this.changes} message(s) older than ${RETENTION_HOURS} hours.`);
         }

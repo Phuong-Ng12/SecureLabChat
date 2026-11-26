@@ -87,6 +87,12 @@
                 <button class="announce-close" @click="dismissBanner" aria-label="Dismiss">✕</button>
             </div>
 
+            <!-- Server problem notice, such as a database error (chat screen only) -->
+            <div v-if="serverError" class="server-error-banner" role="alert">
+                <span class="server-error-text">{{ serverError }}</span>
+                <button class="server-error-close" @click="dismissServerError" aria-label="Dismiss">✕</button>
+            </div>
+
             <!-- Real-Time Chat Display Feed Area Component -->
             <div v-if="!showAdmin" class="chat-area">
                 <div class="chat-header">

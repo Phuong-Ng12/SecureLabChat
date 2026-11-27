@@ -496,6 +496,24 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('list_users', (data) => {
+        const action = 'list_users';
+        if (!requireAdmin(action)) return;
+        if (data !== undefined) {
+            return adminResult(action, false, { error: 'Listing users does not take any input.' });
+        }
+
+        // Only send the fields shown in the dashboard.
+        db.all(`SELECT u.id, u.username, u.role, u.department_id AS departmentId, d.name AS department
+                FROM users u LEFT JOIN departments d ON d.id = u.department_id
+                ORDER BY u.username COLLATE NOCASE, u.id`, [], (err, users) => {
+            if (err) {
+                return adminResult(action, false, { error: databaseError(socket, 'List users error', err) });
+            }
+            adminResult(action, true, { users });
+        });
+    });
+
     socket.on('create_user', (data) => {
         if (!requireAdmin('create_user')) return;
 

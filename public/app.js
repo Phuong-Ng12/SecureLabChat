@@ -189,17 +189,21 @@ createApp({
         const departmentAction = ref(null);
         const departmentMessage = ref({ type: '', text: '' }); // type: 'ok' or 'error'
         
-        // ---- Admin dashboard: new user form ----
+        // ---- Admin dashboard: users ----
         const USER_ROLES = ['Staff', 'Supervisor', 'Manager', 'Admin'];
         const emptyUserForm = () => ({ username: '', password: '', role: 'Staff', departmentId: '' });
+        const users = ref([]);
+        const usersLoading = ref(false);
+        const userAction = ref(null);
         const newUser = ref(emptyUserForm());
         const showUserPassword = ref(false);
         const userPending = ref(false);
         const userMessage = ref({ type: '', text: '' });
 
         // Supervisors and Staff belong to a department. Admin and Manager are company-wide.
-        const roleNeedsDepartment = computed(() =>
-            newUser.value.role === 'Staff' || newUser.value.role === 'Supervisor');
+        const needsDepartment = (role) => role === 'Staff' || role === 'Supervisor';
+        const roleNeedsDepartment = computed(() => needsDepartment(newUser.value.role));
+        const editedRoleNeedsDepartment = computed(() => needsDepartment(userAction.value?.role));
 
         // a company-wide role has no department, so forget a choice made for another role
         watch(() => newUser.value.role, () => {
@@ -263,7 +267,10 @@ createApp({
 
                 // Auto-fetch landing page history logs (also re-joins the room after a reconnect)
                 socket.emit('join_room', currentRoom.value);
-                if (wasLoggedIn && response.resumed && showAdmin.value) loadDepartments();
+                if (wasLoggedIn && response.resumed && showAdmin.value) {
+                    loadDepartments();
+                    loadUsers();
+                }
             } else if (response.resume) {
                 // the saved token is not valid any more
                 clearToken();
@@ -283,10 +290,16 @@ createApp({
         });
 
         socket.on('disconnect', () => {
-            if (!departmentPending.value && !departmentsLoading.value) return;
-            departmentPending.value = false;
-            departmentsLoading.value = false;
-            departmentMessage.value = { type: 'error', text: 'Connection lost. Check the department list before trying again.' };
+            if (departmentPending.value || departmentsLoading.value) {
+                departmentPending.value = false;
+                departmentsLoading.value = false;
+                departmentMessage.value = { type: 'error', text: 'Connection lost. Check the department list before trying again.' };
+            }
+            if (userPending.value || usersLoading.value) {
+                userPending.value = false;
+                usersLoading.value = false;
+                userMessage.value = { type: 'error', text: 'Connection lost. Check the user list before trying again.' };
+            }
         });
 
         socket.on('load_history', (historyData) => {
@@ -367,6 +380,7 @@ createApp({
                             : 'Department deleted.'
                     };
                     loadDepartments();
+                    loadUsers();
                 } else {
                     departmentMessage.value = { type: 'error', text: result.error };
                 }
@@ -387,6 +401,32 @@ createApp({
                 }
             }
 
+            if (result.action === 'list_users') {
+                usersLoading.value = false;
+                if (result.success) {
+                    users.value = result.users;
+                    if (userAction.value && !users.value.some((user) => user.id === userAction.value.id)) {
+                        userAction.value = null;
+                    }
+                } else {
+                    userMessage.value = { type: 'error', text: result.error };
+                }
+            }
+
+            if (result.action === 'update_user' || result.action === 'delete_user') {
+                userPending.value = false;
+                if (result.success) {
+                    userAction.value = null;
+                    userMessage.value = {
+                        type: 'ok',
+                        text: result.action === 'update_user' ? `User "${result.user.username}" updated.` : 'User deleted.'
+                    };
+                    loadUsers();
+                } else {
+                    userMessage.value = { type: 'error', text: result.error };
+                }
+            }
+
             if (result.action === 'create_user') {
                 userPending.value = false;
                 if (result.success) {
@@ -401,20 +441,23 @@ createApp({
                     newUser.value.username = '';
                     newUser.value.password = '';
                     showUserPassword.value = false;
+                    loadUsers();
                 } else {
                     userMessage.value = { type: 'error', text: result.error };
                 }
             }
         });
 
-        // Load the department list each time the dashboard opens
+        // Load the lists each time the dashboard opens
         watch(showAdmin, (visible) => {
             if (!visible) {
                 departmentAction.value = null;
+                userAction.value = null;
                 return;
             }
             userMessage.value = { type: '', text: '' };
             loadDepartments();
+            loadUsers();
         });
 
         function loadDepartments() {
@@ -467,14 +510,67 @@ createApp({
             }
         }
 
+        function loadUsers() {
+            if (!socket.connected) return;
+            usersLoading.value = true;
+            socket.emit('list_users');
+        }
+
+        function startUserAction(type, user) {
+            if (userPending.value || userAction.value) return;
+            userMessage.value = { type: '', text: '' };
+            userAction.value = { type, id: user.id, role: user.role, departmentId: user.departmentId ?? '', password: '' };
+            nextTick(() => document.getElementById(type === 'edit' ? 'editUserRoleSelect' : 'cancelUserDelete')?.focus());
+        }
+
+        function cancelUserAction() {
+            if (userPending.value || !userAction.value) return;
+            const { type, id } = userAction.value;
+            userAction.value = null;
+            userMessage.value = { type: '', text: '' };
+            nextTick(() => document.getElementById(`${type}User-${id}`)?.focus());
+        }
+
+        function confirmUserAction(user) {
+            if (userPending.value || usersLoading.value || userAction.value?.id !== user.id) return;
+            const { type, id, role, password, departmentId } = userAction.value;
+            const fail = (text) => {
+                userMessage.value = { type: 'error', text };
+            };
+            if (!socket.connected) return fail('Connection lost. Please try again when reconnected.');
+
+            const changes = { id };
+            if (type === 'edit') {
+                // Only send fields the admin changed. A blank password keeps the existing one.
+                if (role !== user.role) changes.role = role;
+                if (needsDepartment(role) && (changes.role || departmentId !== (user.departmentId ?? ''))) {
+                    if (!departments.value.some((dept) => dept.id === departmentId)) {
+                        return fail('Choose a department for this role.');
+                    }
+                    changes.departmentId = departmentId;
+                }
+                if (password) {
+                    if (password.length < 8) return fail('Password must be at least 8 characters.');
+                    changes.password = password;
+                }
+                if (Object.keys(changes).length === 1) return fail('Change a role, department or password first.');
+            }
+
+            userMessage.value = { type: '', text: '' };
+            userPending.value = true;
+            userAction.value.password = '';
+            socket.emit(type === 'edit' ? 'update_user' : 'delete_user', changes);
+        }
+
         function createUser() {
-            if (userPending.value) return; // already waiting for the server
+            if (userPending.value || userAction.value) return;
 
             const form = newUser.value;
             const username = form.username.trim();
             const fail = (text) => {
                 userMessage.value = { type: 'error', text };
             };
+            if (!socket.connected) return fail('Connection lost. Please try again when reconnected.');
 
             // the server checks all of this again, these messages just save a round trip
             if (username.length < 3 || username.length > 30) {
@@ -600,6 +696,9 @@ createApp({
             newUser.value = emptyUserForm();
             showUserPassword.value = false;
             userPending.value = false;
+            users.value = [];
+            usersLoading.value = false;
+            userAction.value = null;
             userMessage.value = { type: '', text: '' };
         }
 
@@ -646,9 +745,16 @@ createApp({
             newUser,
             showUserPassword,
             userPending,
+            users,
+            usersLoading,
+            userAction,
             userMessage,
             roleNeedsDepartment,
+            editedRoleNeedsDepartment,
             createUser,
+            startUserAction,
+            cancelUserAction,
+            confirmUserAction,
             openAdmin,
             showChat,
             switchChannel,

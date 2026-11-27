@@ -324,7 +324,7 @@ input:focus {
 .dept-list {
     list-style: none;
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
 }
 
@@ -332,10 +332,49 @@ input:focus {
     background: #ebf8ff;
     color: #2c5282;
     border: 1px solid #bee3f8;
-    border-radius: 999px;
-    padding: 6px 14px;
+    border-radius: 6px;
+    padding: 10px 14px;
     font-weight: 600;
     font-size: 0.9em;
+}
+
+.dept-row,
+.dept-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.dept-row {
+    justify-content: space-between;
+}
+
+.dept-name {
+    overflow-wrap: anywhere;
+}
+
+.dept-actions button {
+    margin: 0;
+    padding: 8px 14px;
+    font-size: 0.95em;
+}
+
+.dept-actions .btn-logout {
+    color: #c53030;
+}
+
+.dept-actions .btn-logout:hover:not(:disabled) {
+    color: white;
+}
+
+.dept-actions button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.dept-form {
+    margin: 8px 0 0;
 }
 
 /* Workspace Structural Configurations */

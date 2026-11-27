@@ -155,18 +155,52 @@
                             <div class="admin-form-row">
                                 <input type="text" id="deptNameInput" v-model="newDepartmentName" maxlength="40"
                                     placeholder="For example: Pharmacy" autocomplete="off">
-                                <button type="submit" class="btn-primary" :disabled="departmentPending">Add
+                                <button type="submit" class="btn-primary" :disabled="departmentPending || departmentAction">Add
                                     department</button>
                             </div>
                         </form>
 
-                        <p v-if="departmentMessage.text" :class="['admin-message', departmentMessage.type]">
+                        <p v-if="departmentMessage.text" :class="['admin-message', departmentMessage.type]" role="status">
                             {{ departmentMessage.text }}</p>
 
                         <h4 class="admin-subtitle">Existing departments ({{ departments.length }})</h4>
                         <p v-if="departmentsLoading" class="admin-empty">Loading...</p>
                         <ul v-else-if="departments.length" class="dept-list">
-                            <li v-for="dept in departments" :key="dept.id">{{ dept.name }}</li>
+                            <li v-for="dept in departments" :key="dept.id">
+                                <div class="dept-row">
+                                    <span class="dept-name">{{ dept.name }}</span>
+                                    <div v-if="departmentAction?.id !== dept.id" class="dept-actions">
+                                        <button type="button" class="btn-primary" :id="'editDept-' + dept.id"
+                                            :aria-label="'Edit ' + dept.name" :disabled="departmentPending || departmentAction"
+                                            @click="startDepartmentAction('edit', dept)">Edit</button>
+                                        <button type="button" class="btn-logout" :id="'deleteDept-' + dept.id"
+                                            :aria-label="'Delete ' + dept.name" :disabled="departmentPending || departmentAction"
+                                            @click="startDepartmentAction('delete', dept)">Delete</button>
+                                    </div>
+                                </div>
+
+                                <form v-if="departmentAction?.id === dept.id" class="admin-form dept-form"
+                                    @submit.prevent="confirmDepartmentAction" @keydown.esc.prevent="cancelDepartmentAction">
+                                    <template v-if="departmentAction.type === 'edit'">
+                                        <label for="editDeptNameInput">New department name</label>
+                                        <input type="text" id="editDeptNameInput" v-model="departmentAction.name"
+                                            maxlength="40" autocomplete="off" :disabled="departmentPending">
+                                        <div class="dept-actions">
+                                            <button type="submit" class="btn-primary" :disabled="departmentPending">Save changes</button>
+                                            <button type="button" class="btn-back" :disabled="departmentPending"
+                                                @click="cancelDepartmentAction">Cancel</button>
+                                        </div>
+                                    </template>
+                                    <template v-else>
+                                        <p>Delete department "{{ dept.name }}"?</p>
+                                        <div class="dept-actions">
+                                            <button type="button" id="cancelDeptDelete" class="btn-back"
+                                                :disabled="departmentPending" @click="cancelDepartmentAction">Cancel</button>
+                                            <button type="submit" class="btn-logout" :disabled="departmentPending">Confirm delete</button>
+                                        </div>
+                                    </template>
+                                </form>
+                            </li>
                         </ul>
                         <p v-else class="admin-empty">No departments yet.</p>
                     </section>

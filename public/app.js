@@ -186,6 +186,7 @@ createApp({
         const departmentsLoading = ref(false);
         const newDepartmentName = ref('');
         const departmentPending = ref(false);
+        const departmentAction = ref(null);
         const departmentMessage = ref({ type: '', text: '' }); // type: 'ok' or 'error'
         
         // ---- Admin dashboard: new user form ----
@@ -262,6 +263,7 @@ createApp({
 
                 // Auto-fetch landing page history logs (also re-joins the room after a reconnect)
                 socket.emit('join_room', currentRoom.value);
+                if (wasLoggedIn && response.resumed && showAdmin.value) loadDepartments();
             } else if (response.resume) {
                 // the saved token is not valid any more
                 clearToken();
@@ -273,6 +275,18 @@ createApp({
             } else {
                 authError.value = response.error;
             }
+        });
+
+        socket.on('department_renamed', ({ room, label }) => {
+            const channel = channels.value.find((c) => c.room === room);
+            if (channel) channel.label = label;
+        });
+
+        socket.on('disconnect', () => {
+            if (!departmentPending.value && !departmentsLoading.value) return;
+            departmentPending.value = false;
+            departmentsLoading.value = false;
+            departmentMessage.value = { type: 'error', text: 'Connection lost. Check the department list before trying again.' };
         });
 
         socket.on('load_history', (historyData) => {
@@ -326,10 +340,33 @@ createApp({
         
         // One listener for the answers to every admin action
         socket.on('admin_result', (result) => {
+            if (!isAdmin.value) return;
             if (result.action === 'list_departments') {
                 departmentsLoading.value = false;
                 if (result.success) {
                     departments.value = result.departments;
+                    if (!departments.value.some((dept) => dept.id === newUser.value.departmentId)) {
+                        newUser.value.departmentId = '';
+                    }
+                    if (departmentAction.value && !departments.value.some((dept) => dept.id === departmentAction.value.id)) {
+                        departmentAction.value = null;
+                    }
+                } else {
+                    departmentMessage.value = { type: 'error', text: result.error };
+                }
+            }
+
+            if (result.action === 'update_department' || result.action === 'delete_department') {
+                departmentPending.value = false;
+                if (result.success) {
+                    departmentAction.value = null;
+                    departmentMessage.value = {
+                        type: 'ok',
+                        text: result.action === 'update_department'
+                            ? `Department "${result.department.name}" updated.`
+                            : 'Department deleted.'
+                    };
+                    loadDepartments();
                 } else {
                     departmentMessage.value = { type: 'error', text: result.error };
                 }
@@ -372,23 +409,62 @@ createApp({
 
         // Load the department list each time the dashboard opens
         watch(showAdmin, (visible) => {
-            if (!visible) return;
+            if (!visible) {
+                departmentAction.value = null;
+                return;
+            }
             userMessage.value = { type: '', text: '' };
-            departmentsLoading.value = true;
-            socket.emit('list_departments');
+            loadDepartments();
         });
 
+        function loadDepartments() {
+            departmentsLoading.value = true;
+            socket.emit('list_departments');
+        }
+
         function createDepartment() {
+            if (departmentPending.value || departmentAction.value) return;
             const name = newDepartmentName.value.trim();
             if (!name) {
                 departmentMessage.value = { type: 'error', text: 'Enter a department name.' };
                 return;
             }
-            if (departmentPending.value) return; // already waiting for the server
-
             departmentMessage.value = { type: '', text: '' };
             departmentPending.value = true;
             socket.emit('create_department', { name });
+        }
+
+        function startDepartmentAction(type, dept) {
+            if (departmentPending.value || departmentAction.value) return;
+            departmentMessage.value = { type: '', text: '' };
+            departmentAction.value = { type, id: dept.id, name: dept.name };
+            nextTick(() => document.getElementById(type === 'edit' ? 'editDeptNameInput' : 'cancelDeptDelete')?.focus());
+        }
+
+        function cancelDepartmentAction() {
+            if (departmentPending.value || !departmentAction.value) return;
+            const { type, id } = departmentAction.value;
+            departmentAction.value = null;
+            departmentMessage.value = { type: '', text: '' };
+            nextTick(() => document.getElementById(`${type}Dept-${id}`)?.focus());
+        }
+
+        function confirmDepartmentAction() {
+            if (departmentPending.value || !departmentAction.value) return;
+            const { type, id, name } = departmentAction.value;
+            const nextName = name.trim();
+            if (type === 'edit' && !nextName) {
+                departmentMessage.value = { type: 'error', text: 'Enter a department name.' };
+                return;
+            }
+
+            departmentMessage.value = { type: '', text: '' };
+            departmentPending.value = true;
+            if (type === 'edit') {
+                socket.emit('update_department', { id, name: nextName });
+            } else {
+                socket.emit('delete_department', { id });
+            }
         }
 
         function createUser() {
@@ -519,6 +595,7 @@ createApp({
             departmentsLoading.value = false;
             newDepartmentName.value = '';
             departmentPending.value = false;
+            departmentAction.value = null;
             departmentMessage.value = { type: '', text: '' };
             newUser.value = emptyUserForm();
             showUserPassword.value = false;
@@ -559,8 +636,12 @@ createApp({
             departmentsLoading,
             newDepartmentName,
             departmentPending,
+            departmentAction,
             departmentMessage,
             createDepartment,
+            startDepartmentAction,
+            cancelDepartmentAction,
+            confirmDepartmentAction,
             USER_ROLES,
             newUser,
             showUserPassword,

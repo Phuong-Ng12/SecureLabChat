@@ -599,6 +599,7 @@ io.on('connection', (socket) => {
         }
 
         const { id, role, password } = data;
+        const adminId = session.userId;
         const hasDepartment = data.departmentId !== undefined;
         if (role === undefined && password === undefined && !hasDepartment) {
             return fail('Provide a role, department or password to update.');
@@ -606,6 +607,9 @@ io.on('connection', (socket) => {
         const textError = (role !== undefined && roleError(role)) ||
             (password !== undefined && passwordError(password));
         if (textError) return fail(textError);
+        if (id === adminId && role !== undefined && role !== 'Admin') {
+            return fail('You cannot change your own admin role.');
+        }
         if (hasDepartment && !isValidId(data.departmentId)) {
             return fail('Choose a valid department.');
         }
@@ -627,14 +631,16 @@ io.on('connection', (socket) => {
             }
 
             // SQLite checks the department foreign key. The old values prevent overwriting
-            // a role or department that another admin changed while this request was waiting.
+            // a role or department another admin changed while this request was waiting.
+            // The requester must still be an admin when the update is applied.
             db.get(
                 `UPDATE users SET role = ?, department_id = ?, password_hash = COALESCE(?, password_hash)
                  WHERE id = ? AND role = ? AND department_id IS ?
+                   AND EXISTS (SELECT 1 FROM users WHERE id = ? AND role = 'Admin')
                  RETURNING id, username, role, department_id AS departmentId,
                            (SELECT name FROM departments WHERE id = users.department_id) AS department`,
                 [nextRole, departmentId, password === undefined ? null : hashPassword(password),
-                    id, current.role, current.department_id],
+                    id, current.role, current.department_id, adminId],
                 (updateErr, user) => {
                     if (updateErr) {
                         if (updateErr.code === 'SQLITE_CONSTRAINT' && updateErr.message.includes('FOREIGN KEY')) {
@@ -642,7 +648,7 @@ io.on('connection', (socket) => {
                         }
                         return fail(databaseError(socket, 'Update user error', updateErr));
                     }
-                    if (!user) return fail('This user changed. Please try again.');
+                    if (!user) return fail('This user changed or you no longer have permission to update it.');
 
                     console.log(`[ADMIN] ${session.name} updated user ${user.username}`);
                     adminResult(action, true, { user });

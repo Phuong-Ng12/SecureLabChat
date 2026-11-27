@@ -520,7 +520,11 @@ createApp({
             if (userPending.value || userAction.value) return;
             userMessage.value = { type: '', text: '' };
             userAction.value = { type, id: user.id, role: user.role, departmentId: user.departmentId ?? '', password: '' };
-            nextTick(() => document.getElementById(type === 'edit' ? 'editUserRoleSelect' : 'cancelUserDelete')?.focus());
+            let focusId = 'cancelUserDelete';
+            if (type === 'edit') {
+                focusId = user.username === currentUser.value.name ? 'editUserPassword' : 'editUserRoleSelect';
+            }
+            nextTick(() => document.getElementById(focusId)?.focus());
         }
 
         function cancelUserAction() {

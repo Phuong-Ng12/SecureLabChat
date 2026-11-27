@@ -280,9 +280,12 @@
                                         <div class="admin-grid">
                                             <div class="admin-field">
                                                 <label for="editUserRoleSelect">Role</label>
-                                                <select id="editUserRoleSelect" v-model="userAction.role" :disabled="userPending">
+                                                <select id="editUserRoleSelect" v-model="userAction.role"
+                                                    :disabled="userPending || user.username === currentUser.name">
                                                     <option v-for="role in USER_ROLES" :key="role" :value="role">{{ role }}</option>
                                                 </select>
+                                                <span v-if="user.username === currentUser.name" class="admin-hint">
+                                                    You cannot change your own admin role.</span>
                                             </div>
                                             <div v-if="editedRoleNeedsDepartment" class="admin-field">
                                                 <label for="editUserDeptSelect">Department</label>

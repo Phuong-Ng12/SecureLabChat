@@ -1,5 +1,7 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const {
     Server
 } = require('socket.io');
@@ -11,7 +13,14 @@ const { ROOMS, ROLES, departmentRoom, canAccessAllDepartments, canPost } = requi
 const { createLoginLimiter } = require('./lib/loginLimiter');
 
 const app = express();
-const server = http.createServer(app);
+// Use HTTPS when the certificate and key exist (see scripts/generate-cert.sh),
+// otherwise fall back to plain http so the app still runs for local development.
+const CERT_PATH = process.env.TLS_CERT || path.join(__dirname, 'certs', 'server.crt');
+const KEY_PATH = process.env.TLS_KEY || path.join(__dirname, 'certs', 'server.key');
+const useHttps = fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH);
+const server = useHttps
+    ? https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
+    : http.createServer(app);
 const io = new Server(server);
 
 app.get('/health', (req, res) => {
@@ -883,8 +892,14 @@ function start(port = process.env.PORT || 3000) {
     setTimeout(runCleanup, 5000);
     setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
+    if (!useHttps) {
+        console.warn(`WARNING: no certificate found at ${CERT_PATH} and ${KEY_PATH}. ` +
+            'Running over plain HTTP, so passwords and messages are NOT encrypted. ' +
+            'Run scripts/generate-cert.sh <lan-ip> to enable HTTPS.');
+    }
+
     server.listen(port, '0.0.0.0', () => {
-        console.log(`Server running on port ${port}`);
+        console.log(`Server running on ${useHttps ? 'https' : 'http'}://localhost:${port}`);
     });
 }
 

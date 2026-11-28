@@ -377,6 +377,24 @@ input:focus {
     margin: 8px 0 0;
 }
 
+.admin-confirmation {
+    margin: auto;
+    width: min(420px, calc(100% - 32px));
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    color: #2d3748;
+}
+
+.admin-confirmation::backdrop {
+    background: rgba(26, 32, 44, 0.55);
+}
+
+.admin-confirmation .admin-list-actions {
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
 /* Workspace Structural Configurations */
 .app-workspace {
     display: flex;

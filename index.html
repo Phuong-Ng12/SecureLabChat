@@ -319,6 +319,18 @@
                             </li>
                         </ul>
                         <p v-else class="admin-empty">No users to display.</p>
+
+                        <dialog ref="adminGrantDialog" class="admin-panel admin-confirmation"
+                            aria-labelledby="adminGrantTitle" aria-describedby="adminGrantDetails"
+                            @cancel.prevent="cancelAdminGrant">
+                            <h3 id="adminGrantTitle">Grant Admin access to "{{ adminGrant?.username }}"?</h3>
+                            <p id="adminGrantDetails">This user will be able to manage users and departments,
+                                reset passwords, and grant Admin access to others.</p>
+                            <div class="admin-list-actions">
+                                <button type="button" class="btn-back" autofocus @click="cancelAdminGrant">Cancel</button>
+                                <button type="button" class="btn-primary" @click="confirmAdminGrant">Grant Admin access</button>
+                            </div>
+                        </dialog>
                     </section>
                 </div>
             </div>

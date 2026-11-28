@@ -195,6 +195,8 @@ createApp({
         const users = ref([]);
         const usersLoading = ref(false);
         const userAction = ref(null);
+        const adminGrant = ref(null);
+        const adminGrantDialog = ref(null);
         const newUser = ref(emptyUserForm());
         const showUserPassword = ref(false);
         const userPending = ref(false);
@@ -290,6 +292,7 @@ createApp({
         });
 
         socket.on('disconnect', () => {
+            cancelAdminGrant();
             if (departmentPending.value || departmentsLoading.value) {
                 departmentPending.value = false;
                 departmentsLoading.value = false;
@@ -453,6 +456,7 @@ createApp({
             if (!visible) {
                 departmentAction.value = null;
                 userAction.value = null;
+                cancelAdminGrant();
                 return;
             }
             userMessage.value = { type: '', text: '' };
@@ -536,7 +540,7 @@ createApp({
         }
 
         function confirmUserAction(user) {
-            if (userPending.value || usersLoading.value || userAction.value?.id !== user.id) return;
+            if (userPending.value || adminGrant.value || usersLoading.value || userAction.value?.id !== user.id) return;
             const { type, id, role, password, departmentId } = userAction.value;
             const fail = (text) => {
                 userMessage.value = { type: 'error', text };
@@ -560,14 +564,14 @@ createApp({
                 if (Object.keys(changes).length === 1) return fail('Change a role, department or password first.');
             }
 
-            userMessage.value = { type: '', text: '' };
-            userPending.value = true;
-            userAction.value.password = '';
-            socket.emit(type === 'edit' ? 'update_user' : 'delete_user', changes);
+            if (changes.role === 'Admin') {
+                return askToGrantAdmin('update_user', changes, user.username);
+            }
+            submitUserChange(type === 'edit' ? 'update_user' : 'delete_user', changes);
         }
 
         function createUser() {
-            if (userPending.value || userAction.value) return;
+            if (userPending.value || userAction.value || adminGrant.value) return;
 
             const form = newUser.value;
             const username = form.username.trim();
@@ -585,14 +589,44 @@ createApp({
                 return fail('Choose a department for this role.');
             }
 
-            userMessage.value = { type: '', text: '' };
-            userPending.value = true;
-            socket.emit('create_user', {
+            const changes = {
                 username,
                 password: form.password,
                 role: form.role,
                 departmentId: roleNeedsDepartment.value ? Number(form.departmentId) : null
-            });
+            };
+            if (form.role === 'Admin') return askToGrantAdmin('create_user', changes, username);
+            submitUserChange('create_user', changes);
+        }
+
+        function askToGrantAdmin(action, changes, username) {
+            userMessage.value = { type: '', text: '' };
+            adminGrant.value = { action, changes, username };
+            adminGrantDialog.value.showModal();
+        }
+
+        function cancelAdminGrant() {
+            adminGrant.value = null;
+            adminGrantDialog.value?.close();
+        }
+
+        function confirmAdminGrant() {
+            if (!adminGrant.value) return;
+            const { action, changes } = adminGrant.value;
+            cancelAdminGrant();
+            submitUserChange(action, changes);
+        }
+
+        function submitUserChange(action, changes) {
+            if (userPending.value || !showAdmin.value) return;
+            if (!socket.connected) {
+                userMessage.value = { type: 'error', text: 'Connection lost. Please try again when reconnected.' };
+                return;
+            }
+            userMessage.value = { type: '', text: '' };
+            userPending.value = true;
+            if (userAction.value) userAction.value.password = '';
+            socket.emit(action, changes);
         }
 
 
@@ -703,6 +737,7 @@ createApp({
             users.value = [];
             usersLoading.value = false;
             userAction.value = null;
+            cancelAdminGrant();
             userMessage.value = { type: '', text: '' };
         }
 
@@ -752,6 +787,10 @@ createApp({
             users,
             usersLoading,
             userAction,
+            adminGrant,
+            adminGrantDialog,
+            cancelAdminGrant,
+            confirmAdminGrant,
             userMessage,
             roleNeedsDepartment,
             editedRoleNeedsDepartment,
